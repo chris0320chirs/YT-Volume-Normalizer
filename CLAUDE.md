@@ -2,6 +2,7 @@
 
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器**）。
+* GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
 * 核心運作原則：
   1. **太小聲的影片**：自動迅速平滑調高（最高 +24 dB，約 16 倍放大），拯救微弱錄音。
   2. **太大聲的影片或廣告**：自動即刻調低（最高 -24 dB，壓至 0.06 倍），防止突發爆音驚嚇。
