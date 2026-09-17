@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube 音量範圍鎖定器</title>
+  <title>YouTube 音量範圍鎖定器與真隨機</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -19,13 +19,13 @@
           </svg>
         </div>
         <div class="brand-text">
-          <h1 class="title">音量範圍鎖定器</h1>
-          <span class="subtitle">太小自動調高・太大自動調低</span>
+          <h1 class="title">音量鎖定 ＆ 真隨機</h1>
+          <span class="subtitle">太小調高・太大調低・無偏隨機</span>
         </div>
       </div>
       
-      <!-- 主切換開關 -->
-      <label class="switch" title="開啟/關閉自動調高與調低功能">
+      <!-- 主切換開關 (音量等化) -->
+      <label class="switch" title="開啟/關閉音量自動調高與調低功能">
         <input type="checkbox" id="toggle-enabled" checked>
         <span class="slider"></span>
       </label>
@@ -132,30 +132,33 @@
       </div>
     </section>
 
-    <!-- 平衡風格 (Mode) -->
-    <section class="section mode-section">
+    <!-- 播放清單真隨機 (True Shuffle) -->
+    <section class="section shuffle-section">
       <div class="section-header">
-        <span class="section-label">等化風格</span>
+        <span class="section-label">播放清單真隨機</span>
+        <span class="badge-session" title="單次有效：重開 Chrome 會自動回到關閉">重開自動關閉</span>
       </div>
-      <div class="mode-pills">
-        <label class="mode-pill">
-          <input type="radio" name="normalizer-mode" value="standard" checked>
-          <span>日常綜合</span>
-        </label>
-        <label class="mode-pill">
-          <input type="radio" name="normalizer-mode" value="vocal">
-          <span>人聲強效加強</span>
-        </label>
-        <label class="mode-pill">
-          <input type="radio" name="normalizer-mode" value="music">
-          <span>音樂原味</span>
+
+      <div class="shuffle-card">
+        <div class="shuffle-left">
+          <div class="shuffle-title-row">
+            <span class="shuffle-icon">🔀</span>
+            <span class="shuffle-title">啟用無偏見真隨機</span>
+          </div>
+          <span class="shuffle-status-tag" id="shuffle-playlist-tag">未偵測到播放清單</span>
+          <p class="shuffle-helper">徹底打亂整個清單，破除演算法偏頗與重複播放。預設關閉且不記憶，關閉瀏覽器自動重設為關閉。</p>
+        </div>
+
+        <label class="switch switch-shuffle" title="開啟/關閉真隨機播放">
+          <input type="checkbox" id="toggle-shuffle">
+          <span class="slider"></span>
         </label>
       </div>
     </section>
 
     <!-- Footer -->
     <footer class="footer">
-      <span class="footer-tip">已啟用全域記憶・YouTube 換片與廣告瞬時自動咬定</span>
+      <span class="footer-tip">音量設定全域記憶・真隨機單次有效（重啟自動關閉）</span>
     </footer>
   </div>
 

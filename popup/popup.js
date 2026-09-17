@@ -1,17 +1,19 @@
 /**
- * YouTube 音量範圍鎖定器 - Popup 邏輯
- * 即時顯示：太小自動調高、太大自動調低、落入設定範圍之三態視覺指示
+ * YouTube 音量範圍鎖定器與真隨機 - Popup 邏輯
+ * 處理：
+ * 1. 音量等化與三態即時指示 (Local Storage 全域持久化)
+ * 2. 播放清單真隨機開關 (Session Storage 單次工作階段有效，重啟 Chrome 自動還原為關閉)
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  const DEFAULT_SETTINGS = {
+  const DEFAULT_LOCAL_SETTINGS = {
     enabled: true,
     targetVolume: 100,
     rangeTightness: 'standard',
     mode: 'standard',
   };
 
-  // DOM 元素
+  // DOM 元素引用
   const appContainer = document.querySelector('.app-container');
   const toggleEnabled = document.getElementById('toggle-enabled');
   const targetSlider = document.getElementById('target-slider');
@@ -30,15 +32,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const vuTargetMarker = document.getElementById('vu-target-marker');
   
   const tightnessRadios = document.querySelectorAll('input[name="range-tightness"]');
-  const modeRadios = document.querySelectorAll('input[name="normalizer-mode"]');
+
+  // 真隨機元素
+  const toggleShuffle = document.getElementById('toggle-shuffle');
+  const shufflePlaylistTag = document.getElementById('shuffle-playlist-tag');
 
   let vuPort = null;
 
-  // 1. 初始化讀取設定
-  chrome.storage.local.get(DEFAULT_SETTINGS, (stored) => {
+  // 1. 初始化讀取 Local 設定 (音量等化)
+  chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS, (stored) => {
     const currentVolume = stored.targetVolume !== undefined ? stored.targetVolume : (stored.volume || 100);
     const settings = {
-      ...DEFAULT_SETTINGS,
+      ...DEFAULT_LOCAL_SETTINGS,
       ...stored,
       targetVolume: currentVolume,
     };
@@ -46,26 +51,26 @@ document.addEventListener('DOMContentLoaded', () => {
     connectToActiveTab();
   });
 
+  // 2. 初始化讀取 Session 設定 (真隨機 - 僅在此次瀏覽器工作階段有效，預設為關閉)
+  if (chrome.storage && chrome.storage.session) {
+    chrome.storage.session.get({ trueShuffle: false }, (stored) => {
+      toggleShuffle.checked = Boolean(stored && stored.trueShuffle);
+    });
+  }
+
   function applyUiState(settings) {
     toggleEnabled.checked = settings.enabled;
     targetSlider.value = settings.targetVolume;
     targetValDisplay.textContent = `${settings.targetVolume}%`;
 
-    // 嚴格度單選
     const targetTightness = document.querySelector(`input[name="range-tightness"][value="${settings.rangeTightness}"]`);
     if (targetTightness) targetTightness.checked = true;
-
-    // 模式單選
-    const targetMode = document.querySelector(`input[name="normalizer-mode"][value="${settings.mode}"]`);
-    if (targetMode) targetMode.checked = true;
 
     updateTargetMarkerPosition(settings.targetVolume, settings.rangeTightness);
     updateContainerDisabledState(settings.enabled);
   }
 
   function updateTargetMarkerPosition(volume, tightness) {
-    // 依目標音量計算目標區間在量表上的位置
-    // volume 0% -> 30%, 100% -> 66%, 150% -> 82%
     const norm = Math.min(150, Math.max(0, volume)) / 150;
     const center = 32 + norm * 50;
 
@@ -103,14 +108,14 @@ document.addEventListener('DOMContentLoaded', () => {
     pillCutting.classList.remove('active-cut');
   }
 
-  // 2. 主開關
+  // 3. 音量主開關切換
   toggleEnabled.addEventListener('change', () => {
     const isEnabled = toggleEnabled.checked;
     chrome.storage.local.set({ enabled: isEnabled });
     updateContainerDisabledState(isEnabled);
   });
 
-  // 3. 目標固定音量滑桿
+  // 4. 目標固定音量滑桿
   targetSlider.addEventListener('input', (e) => {
     const val = parseInt(e.target.value, 10);
     targetValDisplay.textContent = `${val}%`;
@@ -119,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.set({ targetVolume: val, volume: val });
   });
 
-  // 4. 重設按鈕
+  // 5. 重設為 100%
   btnResetTarget.addEventListener('click', () => {
     targetSlider.value = 100;
     targetValDisplay.textContent = '100%';
@@ -128,7 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.set({ targetVolume: 100, volume: 100 });
   });
 
-  // 5. 嚴格度變更
+  // 6. 嚴格度切換
   tightnessRadios.forEach((radio) => {
     radio.addEventListener('change', (e) => {
       if (e.target.checked) {
@@ -138,17 +143,27 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 6. 等化風格變更
-  modeRadios.forEach((radio) => {
-    radio.addEventListener('change', (e) => {
-      if (e.target.checked) {
-        chrome.storage.local.set({ mode: e.target.value });
+  // 7. 播放清單真隨機開關 (Session Storage，關閉瀏覽器自動重設為關閉)
+  toggleShuffle.addEventListener('change', () => {
+    const isChecked = toggleShuffle.checked;
+
+    if (chrome.storage && chrome.storage.session) {
+      chrome.storage.session.set({ trueShuffle: isChecked });
+    }
+
+    // 同步發送訊息至當前分頁即刻生效
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs && tabs[0] && tabs[0].id) {
+        chrome.tabs.sendMessage(tabs[0].id, {
+          type: 'TOGGLE_TRUE_SHUFFLE',
+          enabled: isChecked,
+        }).catch(() => {});
       }
     });
   });
 
   /**
-   * 7. 連接 YouTube 分頁接收即時自動調節狀態
+   * 8. 連接 YouTube 分頁接收即時自動調節狀態與清單偵測
    */
   function connectToActiveTab() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -158,6 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!activeTab.url || !activeTab.url.includes('youtube.com')) {
         lockStatusBadge.textContent = '非 YT 頁面';
         lockStatusBadge.classList.remove('active');
+        shufflePlaylistTag.textContent = '非 YouTube 頁面';
         return;
       }
 
@@ -177,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
               lockStatusBadge.classList.remove('active');
             }
 
-            // 更新三態指示列：太小調高 / 命中在範圍內 / 太大調低
+            // 三態指示燈
             clearPills();
             if (msg.isPlaying) {
               if (msg.statusMode === 'boosting') {
@@ -211,6 +227,20 @@ document.addEventListener('DOMContentLoaded', () => {
             // VU 量表
             vuFill.style.width = `${msg.level}%`;
             vuPeak.style.left = `${msg.peak}%`;
+
+            // 真隨機播放清單狀態回饋
+            if (msg.isPlaylist) {
+              if (msg.isTrueShuffle) {
+                shufflePlaylistTag.textContent = `🟢 真隨機運作中 (清單共 ${msg.playlistCount} 首)`;
+                shufflePlaylistTag.classList.add('active');
+              } else {
+                shufflePlaylistTag.textContent = `已偵測清單 (共 ${msg.playlistCount} 首，尚未開啟)`;
+                shufflePlaylistTag.classList.remove('active');
+              }
+            } else {
+              shufflePlaylistTag.textContent = '未偵測到清單 (進入清單後生效)';
+              shufflePlaylistTag.classList.remove('active');
+            }
           }
         });
 

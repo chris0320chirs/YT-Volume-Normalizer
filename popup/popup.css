@@ -1,6 +1,6 @@
 /* ==========================================================================
-   YouTube 音量範圍鎖定器 - Popup Stylesheet
-   遵循 Design Craft 規範，清晰傳達太小自動調高、太大自動調低之視覺層次
+   YouTube 音量範圍鎖定器與真隨機 - Popup Stylesheet
+   遵循 Design Craft 規範，清晰傳達太小自動調高、太大自動調低與真隨機之視覺層次
    ========================================================================== */
 
 :root {
@@ -556,43 +556,79 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 /* --------------------------------------------------------------------------
-   Mode Segmented Pills
+   Shuffle Section (True Shuffle)
    -------------------------------------------------------------------------- */
-.mode-pills {
-  display: flex;
-  gap: 6px;
+.badge-session {
+  font-size: 10px;
+  color: var(--accent-blue);
+  background-color: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
 }
 
-.mode-pill {
-  flex: 1;
-  position: relative;
+.shuffle-card {
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 6px 4px;
-  cursor: pointer;
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-secondary);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   transition: var(--transition-fast);
 }
 
-.mode-pill input[type="radio"] {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+.shuffle-card:has(input[type="checkbox"]:checked) {
+  border-color: var(--accent-blue);
+  background-color: var(--bg-card-active);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
 }
 
-.mode-pill:hover {
-  background-color: var(--bg-card-hover);
+.shuffle-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shuffle-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shuffle-icon {
+  font-size: 14px;
+}
+
+.shuffle-title {
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
-.mode-pill:has(input[type="radio"]:checked) {
-  background-color: var(--bg-card-active);
-  border-color: var(--accent-red);
-  color: #fff;
+.shuffle-status-tag {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.shuffle-status-tag.active {
+  color: var(--accent-green);
   font-weight: 600;
+}
+
+.shuffle-helper {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.switch-shuffle input:checked + .slider {
+  background-color: var(--accent-blue);
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 10px var(--accent-blue-glow);
 }
 
 /* --------------------------------------------------------------------------
@@ -600,8 +636,7 @@ input[type="range"]::-webkit-slider-thumb:active {
    -------------------------------------------------------------------------- */
 .app-container.is-disabled .target-section,
 .app-container.is-disabled .status-section,
-.app-container.is-disabled .tightness-section,
-.app-container.is-disabled .mode-section {
+.app-container.is-disabled .tightness-section {
   opacity: 0.4;
   pointer-events: none;
   filter: grayscale(0.5);
