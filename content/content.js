@@ -1,12 +1,14 @@
 /**
- * YouTube 音量平衡鎖定器與真隨機 - Content Script
+ * YouTube 音量平衡鎖定器與真隨機 - Content Script (含 25ms Lookahead 前瞻與官方響度預讀)
  * 核心功能：
- * 1. 音量範圍鎖定：太小自動調高、太大自動調低，嚴格維持在目標音量範圍內
- * 2. 播放清單真隨機 (True Shuffle)：
+ * 1. 25ms 前瞻預判緩衝區 (Lookahead Buffer)：
+ *    - 透過 DelayNode (25ms) 讓探測器提前「看見未來」的音量變化
+ *    - 遇突發爆音或大叫，在聲音真正抵達耳機前 25ms 提前平滑壓制
+ * 2. YouTube 官方 Content Loudness 響度元數據預讀：
+ *    - 在影片播放第 0 秒讀取後台轉檔分析值，0 秒瞬間對齊基準
+ * 3. 雙向自動調節：太小自動調高 (最高 +24dB)、太大自動調低 (最高 -24dB)
+ * 4. 播放清單真隨機 (True Shuffle)：
  *    - 預設關閉，且只存於 session storage (關閉 Chrome 自動還原為關閉)
- *    - 杜絕 YouTube 演算法加權與特定幾首歌循環，真正均勻隨機 (Fisher-Yates) 播放
- *    - 攔截影片結束 (ended) 與播放器「下一首 (Next Button)」
- * 3. 換片 0.1 秒瞬時收斂
  */
 
 (() => {
@@ -23,21 +25,19 @@
     mode: 'standard',       // 'standard' (日常平衡) | 'vocal' (人聲強化) | 'music' (音樂原味)
   };
 
-  // 容許範圍半徑 (dB)
   const TIGHTNESS_MAP = {
     strict: 1.0,
     standard: 2.0,
     wide: 3.5,
   };
 
-  // 模式細節配置
   const MODE_CONFIGS = {
     standard: {
       baseTargetDb: -16,
-      maxBoostDb: 24,      // 太低最高調高 +24 dB
-      maxCutDb: -24,       // 太高最高調低 -24 dB
-      rampUpSpeed: 0.35,   // 太小時調高的過渡時間 (秒)
-      rampDownSpeed: 0.05, // 太高時調低的反應速度 (秒)
+      maxBoostDb: 24,
+      maxCutDb: -24,
+      rampUpSpeed: 0.35,
+      rampDownSpeed: 0.03, // 有 25ms 前瞻緩衝，可更快更穩壓制
       knee: 10,
       ratio: 16,
     },
@@ -46,7 +46,7 @@
       maxBoostDb: 28,
       maxCutDb: -26,
       rampUpSpeed: 0.25,
-      rampDownSpeed: 0.04,
+      rampDownSpeed: 0.02,
       knee: 8,
       ratio: 20,
     },
@@ -54,8 +54,8 @@
       baseTargetDb: -17,
       maxBoostDb: 20,
       maxCutDb: -20,
-      rampUpSpeed: 0.60,
-      rampDownSpeed: 0.08,
+      rampUpSpeed: 0.55,
+      rampDownSpeed: 0.05,
       knee: 16,
       ratio: 8,
     },
@@ -65,6 +65,7 @@
   let audioCtx = null;
   let mediaSourceNode = null;
   let inputAnalyserNode = null;
+  let lookaheadDelayNode = null; // 25ms 前瞻緩衝延遲節點
   let agcGainNode = null;
   let limiterNode = null;
   let wetGainNode = null;
@@ -72,6 +73,9 @@
   let outputAnalyserNode = null;
   let connectedVideo = null;
   let agcLoopId = null;
+
+  // 官方預讀元數據
+  let ytOfficialLoudnessDb = null;
 
   // 響度平滑滑動視窗
   const LOUDNESS_WINDOW_SIZE = 22; // 約 1.1 秒
@@ -92,7 +96,7 @@
   let currentPlaylistId = null;
   const playedVideoIds = new Set();
 
-  // 1. 初始化讀取 Local 設定 (音量等化)
+  // 1. 初始化讀取 Local 設定
   chrome.storage.local.get(DEFAULT_SETTINGS, (stored) => {
     if (stored.volume !== undefined && stored.targetVolume === undefined) {
       stored.targetVolume = Math.min(150, Math.max(0, stored.volume));
@@ -101,7 +105,7 @@
     updateAudioParameters();
   });
 
-  // 2. 初始化讀取 Session 設定 (真隨機 - 僅存在於工作階段，重開瀏覽器必為關閉)
+  // 2. 初始化讀取 Session 設定 (真隨機)
   if (chrome.storage && chrome.storage.session) {
     chrome.storage.session.get({ trueShuffle: false }, (stored) => {
       isTrueShuffleEnabled = Boolean(stored && stored.trueShuffle);
@@ -109,7 +113,7 @@
     });
   }
 
-  // 監聽全域設定變更 (包含 local 與 session)
+  // 監聽全域設定變更
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       for (const [k, v] of Object.entries(changes)) {
@@ -124,6 +128,29 @@
       if ('trueShuffle' in changes) {
         isTrueShuffleEnabled = Boolean(changes.trueShuffle.newValue);
         checkPlaylistContext();
+      }
+    }
+  });
+
+  // 接收 page_bridge.js 從主世界傳來的官方 Content Loudness 元數據
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'YT_NORMALIZER_CONTENT_LOUDNESS') {
+      const val = event.data.loudnessDb;
+      if (typeof val === 'number' && !isNaN(val)) {
+        ytOfficialLoudnessDb = val;
+        console.log(`[YT Normalizer] 成功接收官方 Content Loudness 響度元數據: ${val} dB`);
+
+        // 在聲音發出前提前預置初始增益
+        if (currentSettings.enabled && agcGainNode && audioCtx) {
+          const config = MODE_CONFIGS[currentSettings.mode] || MODE_CONFIGS.standard;
+          // YouTube content_loudness: 正值代表比標準小聲 (需放大)，負值代表比標準大聲 (需壓制)
+          const seedOffsetDb = -val;
+          const clamped = Math.min(config.maxBoostDb, Math.max(config.maxCutDb, seedOffsetDb));
+          currentAppliedOffsetDb = clamped;
+          const targetGain = Math.pow(10, clamped / 20);
+          agcGainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.02);
+          lastAppliedGain = targetGain;
+        }
       }
     }
   });
@@ -171,11 +198,12 @@
     isNewVideoConvergence = true;
     currentAppliedOffsetDb = 0;
     currentStatusMode = 'idle';
+    ytOfficialLoudnessDb = null;
     checkPlaylistContext();
   }
 
   /**
-   * 建立 Web Audio API 音訊管線
+   * 建立 Web Audio API 音訊管線 (前瞻雙軌架構)
    */
   function setupAudioPipeline(videoElement) {
     if (!videoElement || connectedVideo === videoElement) return;
@@ -193,30 +221,42 @@
         mediaSourceNode = videoElement.__ytNormalizerSource;
       }
 
+      // 1. 前瞻取樣分析節點 (零延遲探針：提早 25ms 測量未來的波形與 RMS)
       inputAnalyserNode = audioCtx.createAnalyser();
       inputAnalyserNode.fftSize = 2048;
       inputAnalyserNode.smoothingTimeConstant = 0.2;
 
+      // 2. 前瞻延遲節點 (DelayNode 25ms：影音同步極限為 40ms，25ms 完全無感，但賦予增益充足的提前壓制時間)
+      lookaheadDelayNode = audioCtx.createDelay(0.1);
+      lookaheadDelayNode.delayTime.setValueAtTime(0.025, audioCtx.currentTime); // 25ms
+
+      // 3. 自動增益節點與限制器
       agcGainNode = audioCtx.createGain();
       limiterNode = audioCtx.createDynamicsCompressor();
       wetGainNode = audioCtx.createGain();
       dryGainNode = audioCtx.createGain();
 
+      // 4. 輸出分析節點
       outputAnalyserNode = audioCtx.createAnalyser();
       outputAnalyserNode.fftSize = 512;
       outputAnalyserNode.smoothingTimeConstant = 0.4;
 
-      // 拓撲連接
+      // 拓撲連接：
+      // A. 原生旁路 (Bypass): Source -> dryGain -> Destination
       mediaSourceNode.connect(dryGainNode);
       dryGainNode.connect(audioCtx.destination);
 
+      // B. 探測通道 (零延遲探針): Source -> inputAnalyserNode
       mediaSourceNode.connect(inputAnalyserNode);
 
-      mediaSourceNode.connect(agcGainNode);
+      // C. 前瞻播放通道: Source -> lookaheadDelayNode (延遲 25ms) -> agcGain -> Limiter -> wetGain -> Destination
+      mediaSourceNode.connect(lookaheadDelayNode);
+      lookaheadDelayNode.connect(agcGainNode);
       agcGainNode.connect(limiterNode);
       limiterNode.connect(wetGainNode);
       wetGainNode.connect(audioCtx.destination);
 
+      // D. 輸出分析: wetGain -> outputAnalyserNode
       wetGainNode.connect(outputAnalyserNode);
 
       connectedVideo = videoElement;
@@ -239,14 +279,14 @@
       updateAudioParameters();
       startEqualizerLoop();
 
-      console.log('[YT Normalizer & Shuffle] 音訊管線已就緒。');
+      console.log('[YT Normalizer & Shuffle] 25ms Lookahead 前瞻音訊管線已啟動。');
     } catch (e) {
       console.warn('[YT Normalizer & Shuffle] 管線掛載提示:', e);
     }
   }
 
   /**
-   * 智慧調高/調低與範圍鎖定循環 (50ms 週期)
+   * 智慧調高/調低與前瞻等化循環 (50ms 週期)
    */
   function startEqualizerLoop() {
     if (agcLoopId) clearInterval(agcLoopId);
@@ -266,6 +306,7 @@
         return;
       }
 
+      // 1. 測量未延遲的原生輸入 RMS (比播放出來的聲音提前 25ms 看見未來)
       inputAnalyserNode.getFloatTimeDomainData(inBuf);
       let sumSq = 0;
       for (let i = 0; i < inBuf.length; i++) {
@@ -283,6 +324,7 @@
         }
       }
 
+      // 2. 核心運算：提前因應未來波形
       if (currentSettings.enabled && rmsHistory.length >= 2 && agcGainNode) {
         let histSum = 0;
         for (let i = 0; i < rmsHistory.length; i++) {
@@ -309,10 +351,11 @@
 
         const targetGain = Math.pow(10, clampedDiffDb / 20);
 
+        // 由於具備 25ms Lookahead 緩衝，遇突發大聲能在聲音抵達前 0.02s 平滑收攏
         let rampTime;
         if (isNewVideoConvergence) {
-          rampTime = 0.05;
-          if (rmsHistory.length >= 5) {
+          rampTime = 0.04;
+          if (rmsHistory.length >= 4) {
             isNewVideoConvergence = false;
           }
         } else {
@@ -328,6 +371,7 @@
         agcGainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.04);
       }
 
+      // 3. 測量延遲後最終送出至揚聲器的真實 VU 表
       if (outputAnalyserNode) {
         outputAnalyserNode.getFloatTimeDomainData(outBuf);
         let outSum = 0;
@@ -376,6 +420,9 @@
       rangeTightness: currentSettings.rangeTightness,
       isPlaying: connectedVideo ? !connectedVideo.paused && !isPaused : false,
       enabled: currentSettings.enabled,
+      // 前瞻與官方元數據回饋
+      hasLookahead: true,
+      officialLoudness: ytOfficialLoudnessDb !== null ? `${ytOfficialLoudnessDb.toFixed(1)} dB` : null,
       // 真隨機播放清單資訊
       isPlaylist: playlistStats.isPlaylist,
       playlistCount: playlistStats.itemCount,
@@ -451,7 +498,6 @@
     const currentVid = getCurrentVideoIdFromUrl();
     if (currentVid) playedVideoIds.add(currentVid);
 
-    // 擷取清單中所有候選項目的 Video ID 與 DOM 節點
     const candidates = [];
     for (const item of items) {
       const anchor = item.querySelector('a#wc-endpoint') || item.querySelector('a#thumbnail') || item.querySelector('a');
@@ -467,10 +513,8 @@
 
     if (candidates.length === 0) return;
 
-    // 過濾未曾播放過的項目 (杜絕演算法偏頗與重複播放)
     let unplayed = candidates.filter((c) => !playedVideoIds.has(c.vid));
 
-    // 全數播完時重設一輪循環
     if (unplayed.length === 0) {
       playedVideoIds.clear();
       if (currentVid) playedVideoIds.add(currentVid);
@@ -478,7 +522,6 @@
       if (unplayed.length === 0) unplayed = candidates;
     }
 
-    // 真・均勻隨機抽選 (Fisher-Yates 原理)
     const randomIndex = Math.floor(Math.random() * unplayed.length);
     const chosen = unplayed[randomIndex];
 
@@ -486,7 +529,6 @@
 
     playedVideoIds.add(chosen.vid);
 
-    // 觸發 YouTube SPA 內部無縫導航
     if (chosen.anchor) {
       chosen.anchor.click();
     } else {
@@ -494,7 +536,6 @@
     }
   }
 
-  // 1. 攔截影片播放結束 (ended) 事件
   document.addEventListener('ended', (e) => {
     if (isTrueShuffleEnabled && e.target && e.target.tagName === 'VIDEO') {
       const listId = getPlaylistIdFromUrl();
@@ -504,7 +545,6 @@
     }
   }, true);
 
-  // 2. 攔截 YouTube 控制列「下一首」按鈕點擊
   document.addEventListener('click', (e) => {
     if (!isTrueShuffleEnabled) return;
     const nextBtn = e.target.closest('.ytp-next-button');
@@ -519,9 +559,6 @@
     }
   }, true);
 
-  /**
-   * 搜尋並掛載 YouTube 影片標籤
-   */
   function findAndHookVideo() {
     const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
     if (video && video !== connectedVideo) {

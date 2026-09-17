@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const compValueBadge = document.getElementById('comp-value-badge');
   const compDesc = document.getElementById('comp-desc');
+  const officialLoudnessRow = document.getElementById('official-loudness-row');
+  const officialLoudnessVal = document.getElementById('official-loudness-val');
   const vuFill = document.getElementById('vu-fill');
   const vuPeak = document.getElementById('vu-peak');
   const vuTargetMarker = document.getElementById('vu-target-marker');
@@ -222,6 +224,14 @@ document.addEventListener('DOMContentLoaded', () => {
               } else {
                 compValueBadge.className = 'comp-value';
               }
+            }
+
+            // 官方預讀響度顯示
+            if (msg.officialLoudness) {
+              officialLoudnessRow.style.display = 'flex';
+              officialLoudnessVal.textContent = msg.officialLoudness;
+            } else {
+              officialLoudnessRow.style.display = 'none';
             }
 
             // VU 量表

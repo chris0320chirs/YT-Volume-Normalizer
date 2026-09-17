@@ -19,7 +19,10 @@
           </svg>
         </div>
         <div class="brand-text">
-          <h1 class="title">音量鎖定 ＆ 真隨機</h1>
+          <div class="title-row">
+            <h1 class="title">音量鎖定 ＆ 真隨機</h1>
+            <span class="badge-lookahead" title="25ms 前瞻預判緩衝：提早 0.025 秒探測爆音並提前壓平">⚡25ms前瞻</span>
+          </div>
           <span class="subtitle">太小調高・太大調低・無偏隨機</span>
         </div>
       </div>
@@ -79,9 +82,15 @@
 
         <!-- 即時補償數值說明 -->
         <div class="compensation-banner" id="comp-banner">
-          <span class="comp-label">當前即時補償：</span>
-          <span class="comp-value" id="comp-value-badge">0.0 dB</span>
-          <span class="comp-desc" id="comp-desc">音量維持在設定範圍內</span>
+          <div class="comp-main-row">
+            <span class="comp-label">當前即時補償：</span>
+            <span class="comp-value" id="comp-value-badge">0.0 dB</span>
+            <span class="comp-desc" id="comp-desc">音量維持在設定範圍內</span>
+          </div>
+          <div class="comp-sub-row" id="official-loudness-row" style="display:none;">
+            <span class="comp-sub-label">官方預錄響度：</span>
+            <span class="comp-sub-value" id="official-loudness-val">0.0 dB</span>
+          </div>
         </div>
 
         <!-- VU 動態量表 (含目標區間標記) -->

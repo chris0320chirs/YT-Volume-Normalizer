@@ -12,8 +12,10 @@
      - **預設關閉**且**不記憶**（使用 `chrome.storage.session`），每次關閉 Chrome 瀏覽器後自動還原為關閉。
 
 ## 🛠️ 技術棧與核心架構 (Tech Stack & Architecture)
-* 平台規範: Chrome Extension Manifest V3 (Service Worker + Content Script + Popup)
+* 平台規範: Chrome Extension Manifest V3 (Service Worker + Isolated Content Script + MAIN World Bridge + Popup)
 * 核心音訊: HTML5 Web Audio API
+  - **25ms Lookahead 前瞻緩衝 (DelayNode)**: 音訊路徑延遲 25ms，讓探測探針提前 0.025 秒探知未來波形，在爆音到達前平滑壓制。
+  - **YouTube 官方 Content Loudness 預讀 (page_bridge.js)**: 運行於 MAIN world，於影片載入第 0 秒讀取後台轉檔響度偏差並預置初始增益。
   - **前饋式雙向分析**: 2048 點時域 RMS 採樣，即時偵測原始音量差距 $\Delta\text{dB}$。
   - **自適應調高/調低控制 (Adaptive Boost & Cut)**: 太小主動調高、太大主動調低。
   - **三態範圍判定**: `boosting` (太小調高) / `cutting` (太大調低) / `locked` (已在設定範圍內)。
