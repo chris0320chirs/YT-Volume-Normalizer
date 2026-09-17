@@ -598,6 +598,64 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 /* --------------------------------------------------------------------------
+   Mode Section
+   -------------------------------------------------------------------------- */
+.mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.mode-card {
+  position: relative;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: var(--transition-fast);
+}
+
+.mode-card:hover {
+  background-color: var(--bg-card-hover);
+}
+
+.mode-card input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mode-card:has(input[type="radio"]:checked) {
+  background-color: var(--bg-card-active);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 1px var(--accent-green);
+}
+
+.mode-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mode-desc {
+  font-size: 9px;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.mode-card:has(input[type="radio"]:checked) .mode-title {
+  color: var(--accent-green);
+}
+
+/* --------------------------------------------------------------------------
    Shuffle Section (True Shuffle)
    -------------------------------------------------------------------------- */
 .badge-session {
@@ -678,7 +736,8 @@ input[type="range"]::-webkit-slider-thumb:active {
    -------------------------------------------------------------------------- */
 .app-container.is-disabled .target-section,
 .app-container.is-disabled .status-section,
-.app-container.is-disabled .tightness-section {
+.app-container.is-disabled .tightness-section,
+.app-container.is-disabled .mode-section {
   opacity: 0.4;
   pointer-events: none;
   filter: grayscale(0.5);

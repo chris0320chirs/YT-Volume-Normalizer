@@ -118,24 +118,54 @@
       </div>
       <div class="tightness-grid">
         <label class="tightness-card">
-          <input type="radio" name="range-tightness" value="strict">
+          <input type="radio" name="range-tightness" value="strict" checked>
           <div class="tightness-content">
             <span class="tightness-title">嚴格鎖定 (±1dB)</span>
-            <span class="tightness-desc">極致平整，絕不容許忽大忽小</span>
+            <span class="tightness-desc">極致平整，絕不容許忽大忽小 (預設)</span>
           </div>
         </label>
         <label class="tightness-card">
-          <input type="radio" name="range-tightness" value="standard" checked>
+          <input type="radio" name="range-tightness" value="standard">
           <div class="tightness-content">
-            <span class="tightness-title">標準舒適 (±2dB，推薦)</span>
-            <span class="tightness-desc">太小調高、太大調低，兼具自然語氣</span>
+            <span class="tightness-title">標準舒適 (±2dB)</span>
+            <span class="tightness-desc">兼具自然語氣</span>
           </div>
         </label>
         <label class="tightness-card">
           <input type="radio" name="range-tightness" value="wide">
           <div class="tightness-content">
             <span class="tightness-title">寬鬆動態 (±3.5dB)</span>
-            <span class="tightness-desc">保留電影交響樂起伏，僅抓極端落差</span>
+            <span class="tightness-desc">保留電影交響樂起伏</span>
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <!-- 等化風格模式 (Normalizer Mode) -->
+    <section class="section mode-section">
+      <div class="section-header">
+        <span class="section-label">等化風格模式</span>
+      </div>
+      <div class="mode-grid">
+        <label class="mode-card">
+          <input type="radio" name="normalizer-mode" value="standard" checked>
+          <div class="mode-content">
+            <span class="mode-title">📻 廣播級恆定</span>
+            <span class="mode-desc">20:1 極限壓平，零落差</span>
+          </div>
+        </label>
+        <label class="mode-card">
+          <input type="radio" name="normalizer-mode" value="vocal">
+          <div class="mode-content">
+            <span class="mode-title">🗣️ 人聲強效</span>
+            <span class="mode-desc">強化微弱低語，清晰清晰</span>
+          </div>
+        </label>
+        <label class="mode-card">
+          <input type="radio" name="normalizer-mode" value="music">
+          <div class="mode-content">
+            <span class="mode-title">🎵 音樂原味</span>
+            <span class="mode-desc">保留旋律呼吸與動態</span>
           </div>
         </label>
       </div>

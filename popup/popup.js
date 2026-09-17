@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const DEFAULT_LOCAL_SETTINGS = {
     enabled: true,
     targetVolume: 100,
-    rangeTightness: 'standard',
+    rangeTightness: 'strict',
     mode: 'standard',
   };
 
@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const vuTargetMarker = document.getElementById('vu-target-marker');
   
   const tightnessRadios = document.querySelectorAll('input[name="range-tightness"]');
+  const modeRadios = document.querySelectorAll('input[name="normalizer-mode"]');
 
   // 真隨機元素
   const toggleShuffle = document.getElementById('toggle-shuffle');
@@ -67,6 +68,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const targetTightness = document.querySelector(`input[name="range-tightness"][value="${settings.rangeTightness}"]`);
     if (targetTightness) targetTightness.checked = true;
+
+    const targetMode = document.querySelector(`input[name="normalizer-mode"][value="${settings.mode}"]`);
+    if (targetMode) targetMode.checked = true;
 
     updateTargetMarkerPosition(settings.targetVolume, settings.rangeTightness);
     updateContainerDisabledState(settings.enabled);
@@ -145,7 +149,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 7. 播放清單真隨機開關 (Session Storage，關閉瀏覽器自動重設為關閉)
+  // 7. 等化風格模式切換
+  modeRadios.forEach((radio) => {
+    radio.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        chrome.storage.local.set({ mode: e.target.value });
+      }
+    });
+  });
+
+  // 8. 播放清單真隨機開關 (Session Storage，關閉瀏覽器自動重設為關閉)
   toggleShuffle.addEventListener('change', () => {
     const isChecked = toggleShuffle.checked;
 
