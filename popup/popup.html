@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube 音量範圍鎖定器</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header: 標題與總開關 -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="title">音量範圍鎖定器</h1>
+          <span class="subtitle">太小自動調高・太大自動調低</span>
+        </div>
+      </div>
+      
+      <!-- 主切換開關 -->
+      <label class="switch" title="開啟/關閉自動調高與調低功能">
+        <input type="checkbox" id="toggle-enabled" checked>
+        <span class="slider"></span>
+      </label>
+    </header>
+
+    <!-- 核心設定：耳朵目標固定音量 -->
+    <section class="section target-section">
+      <div class="section-header">
+        <span class="section-label">設定目標固定音量</span>
+        <div class="volume-badge-group">
+          <span class="volume-badge" id="target-val-display">100%</span>
+          <button type="button" class="btn-reset" id="btn-reset-target" title="重設為預設推薦音量 100%">重設</button>
+        </div>
+      </div>
+
+      <div class="slider-wrapper">
+        <input type="range" id="target-slider" min="0" max="150" step="1" value="100">
+        <div class="slider-ticks">
+          <span>0% (微弱)</span>
+          <span class="tick-mid">50% (安靜)</span>
+          <span class="tick-rec">100% (標準推薦)</span>
+          <span>150% (強勁)</span>
+        </div>
+      </div>
+      <p class="helper-text">太小的影片會自動調高、太吵的影片會自動調低，固定落在您設定的音量範圍內。</p>
+    </section>
+
+    <!-- 即時自動調節狀態卡片 (太小自動調高 / 在範圍內 / 太大自動調低) -->
+    <section class="section status-section">
+      <div class="status-card">
+        <div class="status-card-header">
+          <span class="status-title">即時調節狀態</span>
+          <span class="status-badge" id="lock-status-badge">待命中</span>
+        </div>
+
+        <!-- 三態動態指示列 -->
+        <div class="tri-state-bar">
+          <div class="state-pill" id="pill-boosting">
+            <span class="pill-icon">⬆️</span>
+            <span class="pill-text">太小・自動調高</span>
+          </div>
+          <div class="state-pill" id="pill-locked">
+            <span class="pill-icon">🎯</span>
+            <span class="pill-text">在設定範圍內</span>
+          </div>
+          <div class="state-pill" id="pill-cutting">
+            <span class="pill-icon">⬇️</span>
+            <span class="pill-text">太大・自動調低</span>
+          </div>
+        </div>
+
+        <!-- 即時補償數值說明 -->
+        <div class="compensation-banner" id="comp-banner">
+          <span class="comp-label">當前即時補償：</span>
+          <span class="comp-value" id="comp-value-badge">0.0 dB</span>
+          <span class="comp-desc" id="comp-desc">音量維持在設定範圍內</span>
+        </div>
+
+        <!-- VU 動態量表 (含目標區間標記) -->
+        <div class="vu-wrapper">
+          <div class="vu-track">
+            <div class="vu-target-marker" id="vu-target-marker" title="您設定的目標音量區間"></div>
+            <div class="vu-fill" id="vu-fill"></div>
+            <div class="vu-peak" id="vu-peak"></div>
+          </div>
+          <div class="vu-ticks">
+            <span>-48dB</span>
+            <span>-24dB</span>
+            <span class="target-tick">設定目標區間</span>
+            <span>-6dB</span>
+            <span class="peak-label">0dB</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 鎖定容許範圍 (Tightness) -->
+    <section class="section tightness-section">
+      <div class="section-header">
+        <span class="section-label">音量範圍嚴格度</span>
+      </div>
+      <div class="tightness-grid">
+        <label class="tightness-card">
+          <input type="radio" name="range-tightness" value="strict">
+          <div class="tightness-content">
+            <span class="tightness-title">嚴格鎖定 (±1dB)</span>
+            <span class="tightness-desc">極致平整，絕不容許忽大忽小</span>
+          </div>
+        </label>
+        <label class="tightness-card">
+          <input type="radio" name="range-tightness" value="standard" checked>
+          <div class="tightness-content">
+            <span class="tightness-title">標準舒適 (±2dB，推薦)</span>
+            <span class="tightness-desc">太小調高、太大調低，兼具自然語氣</span>
+          </div>
+        </label>
+        <label class="tightness-card">
+          <input type="radio" name="range-tightness" value="wide">
+          <div class="tightness-content">
+            <span class="tightness-title">寬鬆動態 (±3.5dB)</span>
+            <span class="tightness-desc">保留電影交響樂起伏，僅抓極端落差</span>
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <!-- 平衡風格 (Mode) -->
+    <section class="section mode-section">
+      <div class="section-header">
+        <span class="section-label">等化風格</span>
+      </div>
+      <div class="mode-pills">
+        <label class="mode-pill">
+          <input type="radio" name="normalizer-mode" value="standard" checked>
+          <span>日常綜合</span>
+        </label>
+        <label class="mode-pill">
+          <input type="radio" name="normalizer-mode" value="vocal">
+          <span>人聲強效加強</span>
+        </label>
+        <label class="mode-pill">
+          <input type="radio" name="normalizer-mode" value="music">
+          <span>音樂原味</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span class="footer-tip">已啟用全域記憶・YouTube 換片與廣告瞬時自動咬定</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

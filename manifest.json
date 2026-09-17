@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube 音量平衡鎖定器 (YT Volume Normalizer)",
+  "version": "1.0.0",
+  "description": "智慧平衡與鎖定 YouTube 影片/Shorts 播放音量，即時消除廣告與突發爆音，支援 0%～300% 音量增益。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "YouTube 音量平衡鎖定器"
+  },
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# 敏感金鑰與環境變數
+.env
+.env.*
+*.pem
+*.key
+secrets.*
+
+# Python 專案檔
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# Node.js 專案檔
+node_modules/
+dist/
+build/
+.next/
+
+# 系統與 IDE 檔案
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
