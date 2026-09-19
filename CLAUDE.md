@@ -3,38 +3,41 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.8.2 (多分頁情境速度隔離・分頁切換即時同步・純音物理遮擋加固版)**
+* 當前版本：**v1.8.3 (播放器控制列按鈕安全插入・徹底根治 insertBefore NotFoundError・多分頁即時同步版)**
 * 核心運作原則：
-  1. **太小聲的影片**：自動平滑調高（安全上限 +12 dB），拯救微弱錄音，同時杜絕底噪放大。
-  2. **太大聲的影片或廣告**：自動即刻調低（最高 -18 dB），防止突發爆音驚嚇。
-  3. **目標音量範圍**：所有影片播放時，輸出音量嚴格維持在使用者在彈出視窗設定的音量範圍內（50% 基準點）。
-  4. **智慧歌曲辨識自動調速與多分頁切換同步 (Smart Speed & Multi-Tab Isolation，v1.8.2 加強)**：
+  1. **零控制台拋錯與安全 DOM 注入 (v1.8.3 核心修復)**：
+     - 使用 `referenceNode.parentNode.insertBefore` 徹底杜絕 YouTube 控制列按鈕嵌套包裝導致的 `NotFoundError: The node before which the new node is to be inserted is not a child of this node` 錯誤。
+     - 控制列注入外層全量包裹 `try-catch` 容錯防護，定時輪詢巡檢 100% 不拋出任何未捕獲例外，徹底清除 Chrome 擴充功能「錯誤」按鈕。
+  2. **太小聲的影片**：自動平滑調高（安全上限 +12 dB），拯救微弱錄音，同時杜絕底噪放大。
+  3. **太大聲的影片或廣告**：自動即刻調低（最高 -18 dB），防止突發爆音驚嚇。
+  4. **目標音量範圍**：所有影片播放時，輸出音量嚴格維持在使用者在彈出視窗設定的音量範圍內（50% 基準點）。
+  5. **智慧歌曲辨識自動調速與多分頁切換同步 (Smart Speed & Multi-Tab Isolation，v1.8.2 加強)**：
      - 8 層級 YouTube 官方與語義混合辨識（Category: Music、musicVideoType、Topic 官方頻道、藝人認證徽章、說明欄版權資訊、白名單歌單、標題強特徵）。
      - 聽歌 / 音樂歌曲時自動套用 **1.0x 原速**；一般影片時自動套用 **2.0x 倍速**。
      - **多分頁獨立隔離 (Tab-Level Isolation)**：開多個分頁時（例如一個分頁看片、另一個分頁聽歌），各分頁依自身內容獨立維持速度，徹底杜絕跨分頁 storage 污染。
      - **分頁切換即時同步 (Tab Switch Auto Sync)**：監聽 `visibilitychange`、`focus` 與 Background `tabs.onActivated`，切換進分頁時 0 秒即刻對齊該分頁的情境倍速，並同步更新控制列與 Popup 狀態。
      - 單片手動覆蓋保護（Manual Override）：單一影片手動覆蓋僅限本分頁，換片前不強制重設，換片後自動重新評估。
      - 播放器底欄 `#ytp-speed-btn` 即時回饋紫色微光 `🎵 1.0x` 或 `⚡ 2.0x`。
-  5. **固定畫質 (Lock Quality，參考 YouTube Tweak)**：
+  6. **固定畫質 (Lock Quality，參考 YouTube Tweak)**：
      - 使用者可自由鎖定偏好解析度（自動 / 1080p FHD / 1440p 2K / 4K / 720p HD）。
      - 換片時自動強制套用；若影片不支援設定畫質，智慧向下 Fallback 至最接近的最高可用畫質。
      - 與純聽音樂模式完美聯動：純音黑屏時降至 144p 省電，關閉純音時自動秒速還原使用者鎖定之畫質。
-  6. **3倍速按鈕 ＆ 播放速度控制 (Speed Control，參考 YouTube Tweak)**：
+  7. **3倍速按鈕 ＆ 播放速度控制 (Speed Control，參考 YouTube Tweak)**：
      - 突破 YouTube 官方 2.0x 限制，直接在播放器底欄注入專屬 `⚡倍速按鈕`。
      - 點擊按鈕直接循環切換：`1.0x` ➔ `1.5x` ➔ `2.0x` ➔ `⚡3.0x` ➔ `1.0x`。
      - 全域快捷鍵：`Shift+S` 循環調速、`Shift+3` 一鍵直達 3.0x 暴衝倍速。
      - 自動防重設：監聽影片 `ratechange` 事件，防止 YouTube SPA 換片或廣告插播後被偷偷重設回 1.0x。
-  7. **播放清單自動隨機白名單 (Auto Shuffle for Whitelist Playlists)**：
+  8. **播放清單自動隨機白名單 (Auto Shuffle for Whitelist Playlists)**：
      - **特定歌單自動隨機**：支援輸入播放清單 ID（純 ID 或完整 YouTube 網址智慧解析），持久化儲存於 `chrome.storage.local`。
      - **遇白名單清單自動啟動**：載入或換片至白名單內的播放清單時，**自動開啟真隨機播放**；離開白名單清單時**自動還原關閉**，保護教學或連貫劇集體驗。
      - **主介面一鍵星號快捷**：在 YouTube 播放清單時，直接提供 `[⭐自動隨機]` / `[★已設自動隨機 (移除)]` 一鍵切換，無需手動複製 ID。
-  8. **純聽音樂模式 (Music Mode 畫面遮擋與省電防中斷，v1.8.1 加固)**：
+  9. **純聽音樂模式 (Music Mode 畫面遮擋與省電防中斷，v1.8.1 加固)**：
      - **全域 CSS 物理級壓制**：注入 `html.yt-music-mode-active` 與 `#movie_player.yt-music-mode-active` 樣式規則，直接強制 `opacity: 0 !important; visibility: hidden !important;`，徹底隱藏影片、字幕與浮動資訊卡，絕不漏出畫面。
      - **高層級沉浸遮罩 (`z-index: 58 !important`)**：位於底欄控制列 (`z-index: 60`) 之下、所有畫面與字幕之上，兼顧沉浸感與底欄操控性。
      - **即時通訊呼叫**：修正訊息接收端立即觸發 `applyMusicMode`，杜絕任何畫面未同步切換之問題。
      - **144p 省電降頻節流**：開啟遮罩時自動將影片解析度降至 `small` (144p)，大幅節省 85% GPU 解碼運算與網路頻寬；關閉時自動還原鎖定畫質。
      - **背景防中斷 Watchdog**：自動跳過 YouTube「影片已暫停。要繼續觀看嗎？」確認彈窗，並在純音模式下自動秒跳過廣告。
-  8. **零破音與抗底噪防護**：
+  10. **零破音與抗底噪防護**：
      - **零溢出軟削頂器 (WaveShaper Soft Clipper, 4x Oversampling)**：最大輸出振幅硬性鎖定 $\le -0.5$ dBFS (峰值 $\le 0.945$)，徹底杜絕外接 DAC 與音效卡削頂爆裂破音 (Clipping Crackles)。
      - **智慧抗底噪門限與向下擴展 (Smart Noise Floor Gate & Downward Expander)**：門限 -46 dBFS，對話暫停時凍結 AGC 並溫和衰減 -8 dB，杜絕每句話之間的「沙沙沙」底噪抽吸 (Pumping)。
      - **消除波形調制失真**：優化為 10:1 平滑廣播壓縮比，釋放時間拉長至 380ms，消除男低音波形粗糙毛刺感。

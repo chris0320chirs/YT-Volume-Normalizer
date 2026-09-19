@@ -1176,7 +1176,11 @@
         }
       });
 
-      player.appendChild(overlay);
+      try {
+        player.appendChild(overlay);
+      } catch {
+        // 容錯防護
+      }
     }
 
     // 2. 確保播放器控制列按鈕存在
@@ -1201,9 +1205,21 @@
         chrome.storage.local.set({ musicMode: next });
       });
 
-      // 插入於設定齒輪前
-      const settingsBtn = rightControls.querySelector('.ytp-settings-button') || rightControls.firstChild;
-      rightControls.insertBefore(btn, settingsBtn);
+      // 安全插入於設定齒輪前 (使用 settingsBtn.parentNode 徹底杜絕 not a child of this node 錯誤)
+      try {
+        const settingsBtn = rightControls.querySelector('.ytp-settings-button');
+        if (settingsBtn && settingsBtn.parentNode) {
+          settingsBtn.parentNode.insertBefore(btn, settingsBtn);
+        } else {
+          rightControls.appendChild(btn);
+        }
+      } catch {
+        try {
+          rightControls.appendChild(btn);
+        } catch {
+          // 容錯防護
+        }
+      }
     }
 
     updateMusicModeVisualState(currentSettings.musicMode);
@@ -1484,14 +1500,29 @@
         cyclePlaybackSpeed();
       });
 
-      const musicBtn = document.getElementById('ytp-music-mode-btn');
-      const settingsBtn = rightControls.querySelector('.ytp-settings-button');
-      if (musicBtn && musicBtn.nextSibling) {
-        rightControls.insertBefore(btn, musicBtn.nextSibling);
-      } else if (settingsBtn) {
-        rightControls.insertBefore(btn, settingsBtn);
-      } else {
-        rightControls.appendChild(btn);
+      // 安全插入於純音按鈕後或設定齒輪前 (使用 parentNode 徹底杜絕 not a child of this node 錯誤)
+      try {
+        const musicBtn = document.getElementById('ytp-music-mode-btn');
+        if (musicBtn && musicBtn.parentNode) {
+          if (musicBtn.nextSibling) {
+            musicBtn.parentNode.insertBefore(btn, musicBtn.nextSibling);
+          } else {
+            musicBtn.parentNode.appendChild(btn);
+          }
+        } else {
+          const settingsBtn = rightControls.querySelector('.ytp-settings-button');
+          if (settingsBtn && settingsBtn.parentNode) {
+            settingsBtn.parentNode.insertBefore(btn, settingsBtn);
+          } else {
+            rightControls.appendChild(btn);
+          }
+        }
+      } catch {
+        try {
+          rightControls.appendChild(btn);
+        } catch {
+          // 容錯防護
+        }
       }
     }
 
