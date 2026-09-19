@@ -41,3 +41,16 @@ chrome.runtime.onStartup.addListener(() => {
 // 初始化調用
 initSessionAccess();
 
+// 監聽分頁切換 (Tab Switch)，主動通知被啟動之分頁同步情境速度
+if (chrome.tabs && chrome.tabs.onActivated) {
+  chrome.tabs.onActivated.addListener((activeInfo) => {
+    try {
+      if (activeInfo && activeInfo.tabId) {
+        chrome.tabs.sendMessage(activeInfo.tabId, { type: 'TAB_ACTIVATED' }).catch(() => {});
+      }
+    } catch {
+      // 容錯防護
+    }
+  });
+}
+

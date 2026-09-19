@@ -171,7 +171,13 @@
           currentSettings[k] = v.newValue;
           if (k === 'musicMode') musicModeChanged = true;
           if (k === 'lockedQuality') applyLockedQuality(v.newValue);
-          if (k === 'playbackSpeed') applyPlaybackSpeed(v.newValue);
+          if (k === 'playbackSpeed') {
+            // 關鍵防護：僅在關閉智慧調速（使用全域固定速度）時，才跨分頁同步套用
+            // 若開啟智慧調速，各分頁依據自身內容（聽歌 1.0x / 看片 2.0x）獨立維持，杜絕互相干擾
+            if (!currentSettings.smartSpeedEnabled) {
+              applyPlaybackSpeed(v.newValue);
+            }
+          }
           if (k === 'smartSpeedEnabled' || k === 'musicSpeed' || k === 'videoSpeed') {
             evaluateAndApplySmartSpeed(true);
           }
@@ -263,6 +269,9 @@
       sendResponse({ status: 'ok' });
     } else if (msg.type === 'GET_PLAYLIST_STATUS') {
       sendResponse(getPlaylistStats());
+    } else if (msg.type === 'TAB_ACTIVATED') {
+      onTabContextSynchronize();
+      sendResponse({ status: 'ok', playbackSpeed: currentSettings.playbackSpeed });
     }
   });
 
@@ -1518,14 +1527,46 @@
     }
   });
 
-  // 自動防速度被 YouTube 重設
+  // 多分頁切換時同步情境倍速 (Tab Context Re-synchronization)
+  function onTabContextSynchronize() {
+    if (document.visibilityState === 'hidden') return;
+
+    // 重新評估當前分頁影片內容情境 (音樂 1.0x / 影片 2.0x / 手動覆蓋) 並套用
+    evaluateAndApplySmartSpeed();
+
+    // 確保底欄速度膠囊按鈕存在且顯示正確
+    ensurePlayerSpeedButton();
+
+    // 當前作用中分頁將自身速度記錄至 storage 供 Popup 即時讀取
+    if (document.visibilityState === 'visible' && currentSettings.playbackSpeed) {
+      chrome.storage.local.set({ playbackSpeed: currentSettings.playbackSpeed });
+    }
+
+    // 立即向 Popup 推送一幀狀態更新
+    broadcastStatus(false);
+  }
+
+  // 監聽分頁可見度切換事件 (Tab Switch)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      onTabContextSynchronize();
+    }
+  });
+
+  // 監聽視窗聚焦事件 (Window Focus)
+  window.addEventListener('focus', () => {
+    onTabContextSynchronize();
+  });
+
+  // 自動防速度被 YouTube 重設 (防廣告或 SPA 偷改，全速域精確守護)
   document.addEventListener('ratechange', (e) => {
     if (e.target && e.target.tagName === 'VIDEO') {
       const expected = parseFloat(currentSettings.playbackSpeed) || 1.0;
-      if (expected !== 1.0 && Math.abs(e.target.playbackRate - expected) > 0.05) {
+      if (Math.abs(e.target.playbackRate - expected) > 0.05) {
         setTimeout(() => {
           if (e.target && !e.target.paused) {
             e.target.playbackRate = expected;
+            window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: expected }, '*');
           }
         }, 150);
       }

@@ -3,15 +3,17 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.8.1 (純聽音樂模式遮擋強化・全域 CSS 壓制・智慧歌曲自動調速版)**
+* 當前版本：**v1.8.2 (多分頁情境速度隔離・分頁切換即時同步・純音物理遮擋加固版)**
 * 核心運作原則：
   1. **太小聲的影片**：自動平滑調高（安全上限 +12 dB），拯救微弱錄音，同時杜絕底噪放大。
   2. **太大聲的影片或廣告**：自動即刻調低（最高 -18 dB），防止突發爆音驚嚇。
   3. **目標音量範圍**：所有影片播放時，輸出音量嚴格維持在使用者在彈出視窗設定的音量範圍內（50% 基準點）。
-  4. **智慧歌曲辨識自動調速 (Smart Speed Context Detection，v1.8.0 新增)**：
+  4. **智慧歌曲辨識自動調速與多分頁切換同步 (Smart Speed & Multi-Tab Isolation，v1.8.2 加強)**：
      - 8 層級 YouTube 官方與語義混合辨識（Category: Music、musicVideoType、Topic 官方頻道、藝人認證徽章、說明欄版權資訊、白名單歌單、標題強特徵）。
      - 聽歌 / 音樂歌曲時自動套用 **1.0x 原速**；一般影片時自動套用 **2.0x 倍速**。
-     - 單片手動覆蓋保護（Manual Override）：使用者若在單一影片內手動切換速度，換片前不強制重設，換片後自動重新評估。
+     - **多分頁獨立隔離 (Tab-Level Isolation)**：開多個分頁時（例如一個分頁看片、另一個分頁聽歌），各分頁依自身內容獨立維持速度，徹底杜絕跨分頁 storage 污染。
+     - **分頁切換即時同步 (Tab Switch Auto Sync)**：監聽 `visibilitychange`、`focus` 與 Background `tabs.onActivated`，切換進分頁時 0 秒即刻對齊該分頁的情境倍速，並同步更新控制列與 Popup 狀態。
+     - 單片手動覆蓋保護（Manual Override）：單一影片手動覆蓋僅限本分頁，換片前不強制重設，換片後自動重新評估。
      - 播放器底欄 `#ytp-speed-btn` 即時回饋紫色微光 `🎵 1.0x` 或 `⚡ 2.0x`。
   5. **固定畫質 (Lock Quality，參考 YouTube Tweak)**：
      - 使用者可自由鎖定偏好解析度（自動 / 1080p FHD / 1440p 2K / 4K / 720p HD）。

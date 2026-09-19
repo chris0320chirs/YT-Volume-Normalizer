@@ -511,6 +511,157 @@ it('關閉純聽音樂模式時應立即移除 yt-music-mode-active、還原影�
 });
 
 // --------------------------------------------------------------------------
+// 測試模組 9: 多分頁情境倍速隔離與切換同步 (Multi-Tab Speed Isolation & Sync)
+// --------------------------------------------------------------------------
+console.log('\n--- 測試 9: 多分頁情境倍速隔離與切換同步 ---');
+
+class MockTabEnvironment {
+  constructor(tabId, isMusic, globalSettings) {
+    this.tabId = tabId;
+    this.isMusic = isMusic;
+    this.globalSettings = globalSettings;
+    this.localPlaybackRate = 1.0;
+    this.manualOverrideSpeed = null;
+    this.isVisible = false;
+    this.reapplyCount = 0;
+  }
+
+  evaluateAndApply() {
+    this.reapplyCount++;
+    if (!this.globalSettings.smartSpeedEnabled) {
+      this.localPlaybackRate = parseFloat(this.globalSettings.playbackSpeed) || 2.0;
+      return;
+    }
+    if (this.manualOverrideSpeed !== null) {
+      this.localPlaybackRate = this.manualOverrideSpeed;
+      return;
+    }
+    this.localPlaybackRate = this.isMusic
+      ? (parseFloat(this.globalSettings.musicSpeed) || 1.0)
+      : (parseFloat(this.globalSettings.videoSpeed) || 2.0);
+  }
+
+  onTabSwitch(visible) {
+    this.isVisible = visible;
+    if (visible) {
+      this.evaluateAndApply();
+      // 同步為全域目前作用中分頁速度供 Popup 讀取
+      this.globalSettings.playbackSpeed = this.localPlaybackRate;
+    }
+  }
+
+  onStorageChanged(key, newValue) {
+    if (key === 'playbackSpeed') {
+      // 關鍵：開啟智慧調速時，不被其他分頁的 playbackSpeed 污染
+      if (!this.globalSettings.smartSpeedEnabled) {
+        this.localPlaybackRate = newValue;
+      }
+    } else if (key === 'smartSpeedEnabled' || key === 'musicSpeed' || key === 'videoSpeed') {
+      this.evaluateAndApply();
+    }
+  }
+}
+
+it('多分頁各自播放時速度獨立隔離：影片分頁 2.0x 與音樂分頁 1.0x 互不干擾', () => {
+  const sharedSettings = {
+    smartSpeedEnabled: true,
+    musicSpeed: 1.0,
+    videoSpeed: 2.0,
+    playbackSpeed: 2.0,
+  };
+
+  const tabVideo = new MockTabEnvironment('tab1', false, sharedSettings);
+  const tabMusic = new MockTabEnvironment('tab2', true, sharedSettings);
+
+  tabVideo.evaluateAndApply();
+  tabMusic.evaluateAndApply();
+
+  assert.strictEqual(tabVideo.localPlaybackRate, 2.0, '影片分頁應為 2.0x');
+  assert.strictEqual(tabMusic.localPlaybackRate, 1.0, '音樂分頁應為 1.0x');
+
+  // 模擬 tabVideo 變更了 playbackSpeed storage
+  tabMusic.onStorageChanged('playbackSpeed', 2.0);
+  assert.strictEqual(tabMusic.localPlaybackRate, 1.0, '音樂分頁在開啟智慧調速時，絕對不被影片分頁的 storage 變更污染');
+});
+
+it('切換分頁時，目標分頁即刻對齊自身情境速度並更新全域作用中狀態', () => {
+  const sharedSettings = {
+    smartSpeedEnabled: true,
+    musicSpeed: 1.0,
+    videoSpeed: 2.0,
+    playbackSpeed: 2.0,
+  };
+
+  const tabVideo = new MockTabEnvironment('tab1', false, sharedSettings);
+  const tabMusic = new MockTabEnvironment('tab2', true, sharedSettings);
+
+  // 一開始在 tabVideo
+  tabVideo.onTabSwitch(true);
+  assert.strictEqual(sharedSettings.playbackSpeed, 2.0, '前景分頁為影片時，全域狀態對齊 2.0x');
+
+  // 切換到 tabMusic
+  tabVideo.onTabSwitch(false);
+  tabMusic.onTabSwitch(true);
+
+  assert.strictEqual(tabMusic.localPlaybackRate, 1.0, '切換進音樂分頁時應為 1.0x');
+  assert.strictEqual(sharedSettings.playbackSpeed, 1.0, '切換進音樂分頁時，全域狀態即時同步為 1.0x (供 Popup 讀取)');
+
+  // 切換回 tabVideo
+  tabMusic.onTabSwitch(false);
+  tabVideo.onTabSwitch(true);
+
+  assert.strictEqual(tabVideo.localPlaybackRate, 2.0, '切換回影片分頁時應為 2.0x');
+  assert.strictEqual(sharedSettings.playbackSpeed, 2.0, '切換回影片分頁時，全域狀態即時同步為 2.0x');
+});
+
+it('單片手動覆蓋僅限於該分頁，不干擾另一分頁的智慧速度', () => {
+  const sharedSettings = {
+    smartSpeedEnabled: true,
+    musicSpeed: 1.0,
+    videoSpeed: 2.0,
+    playbackSpeed: 2.0,
+  };
+
+  const tabVideo = new MockTabEnvironment('tab1', false, sharedSettings);
+  const tabMusic = new MockTabEnvironment('tab2', true, sharedSettings);
+
+  tabVideo.evaluateAndApply();
+  tabMusic.evaluateAndApply();
+
+  // 使用者在 tabVideo 手動設為 3.0x 暴衝速
+  tabVideo.manualOverrideSpeed = 3.0;
+  tabVideo.evaluateAndApply();
+
+  assert.strictEqual(tabVideo.localPlaybackRate, 3.0, '影片分頁手動覆蓋為 3.0x');
+  assert.strictEqual(tabMusic.localPlaybackRate, 1.0, '音樂分頁依然保持 1.0x 原速，不受另一分頁手動調整影響');
+});
+
+it('關閉智慧調速時，所有分頁統一同步全域速度', () => {
+  const sharedSettings = {
+    smartSpeedEnabled: false,
+    musicSpeed: 1.0,
+    videoSpeed: 2.0,
+    playbackSpeed: 1.5,
+  };
+
+  const tabVideo = new MockTabEnvironment('tab1', false, sharedSettings);
+  const tabMusic = new MockTabEnvironment('tab2', true, sharedSettings);
+
+  tabVideo.evaluateAndApply();
+  tabMusic.evaluateAndApply();
+
+  assert.strictEqual(tabVideo.localPlaybackRate, 1.5);
+  assert.strictEqual(tabMusic.localPlaybackRate, 1.5);
+
+  // 變更全域速度為 3.0x
+  tabVideo.onStorageChanged('playbackSpeed', 3.0);
+  tabMusic.onStorageChanged('playbackSpeed', 3.0);
+
+  assert.strictEqual(tabVideo.localPlaybackRate, 3.0);
+  assert.strictEqual(tabMusic.localPlaybackRate, 3.0);
+});
+
+// --------------------------------------------------------------------------
 // 總結統計
 // --------------------------------------------------------------------------
 console.log('\n====================================================');
