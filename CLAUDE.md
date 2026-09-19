@@ -3,12 +3,12 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.8.5 (全域護盾 URL 修正・MutationObserver Debounce・音樂模式分頁獨立・白名單自動隱藏畫面)**
+* 當前版本：**v1.8.6 (純聽音樂模式遮擋畫面播放防卡頓加固・Watchdog 防誤殺正常影片・144p 切換防抖節流・Video 解碼懸吊解除)**
 * 核心運作原則：
-  1. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4~v1.8.5 多層加固)**：
-     - **版本化 LOADED 旗標 (v1.8.5)**：改用 `__YT_VOLUME_NORMALIZER_1_8_5__` 版本化旗標，確保舊版殭屍腳本不阻擋新版載入，主控台輸出版本確認標識。
-     - **全域護盾 URL 匹配修正 (v1.8.5)**：`event.filename` 匹配改為 `chrome-extension://`，確保所有來自擴充功能的錯誤都被正確攔截（防範 Chrome 實際 URL 格式不符）。
-     - **MutationObserver Debounce 節流 (v1.8.5)**：YouTube SPA 換頁時 DOM 劇烈變動，加入 300ms debounce，防止爆發大量競態 `insertBefore` 調用。
+  1. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4~v1.8.6 多層加固)**：
+     - **版本化 LOADED 旗標 (v1.8.6)**：改用 `__YT_VOLUME_NORMALIZER_1_8_6__` 版本化旗標，確保舊版殭屍腳本不阻擋新版載入，主控台輸出版本確認標識。
+     - **全域護盾 URL 匹配修正**：`event.filename` 匹配改為 `chrome-extension://`，確保所有來自擴充功能的錯誤都被正確攔截（防範 Chrome 實際 URL 格式不符）。
+     - **MutationObserver Debounce 節流**：YouTube SPA 換頁時 DOM 劇烈變動，加入 300ms debounce，防止爆發大量競態 `insertBefore` 調用。
      - **孤兒實例自我銷毀機制 (Anti-Orphan Teardown)**：定時器與 Watchdog 均主動檢查 `isExtensionValid()`，當擴充套件重新載入或上下文失效時，立即自我清除所有 `setInterval` 並斷開 `MutationObserver`，杜絕任何未刷新分頁產生的殭屍任務拋錯。
      - **全域例外攔截護盾 (Global Error Shield)**：監聽 `window.addEventListener('error')` 與 `unhandledrejection`，自動攔截內部潛在例外並執行 `preventDefault()`，確保 Chrome 擴充功能錯誤記錄器維持 0 報錯。
      - **安全 DOM 注入與脫鉤保護**：全面採用 `referenceNode.parentNode.insertBefore` 與 `isConnected` 檢測，即使 YouTube 播放器組件動態脫鉤或銷毀，外層全量包裹 `try-catch` 容錯，徹底杜絕任何未捕獲例外。
@@ -26,22 +26,23 @@
      - 使用者可自由鎖定偏好解析度（自動 / 1080p FHD / 1440p 2K / 4K / 720p HD）。
      - 換片時自動強制套用；若影片不支援設定畫質，智慧向下 Fallback 至最接近的最高可用畫質。
      - 與純聽音樂模式完美聯動：純音黑屏時降至 144p 省電，關閉純音時自動秒速還原使用者鎖定之畫質。
-  7. **3倍速按鈕 ＆ 播放速度控制 (Speed Control，參考 YouTube Tweak)**：
+  7. **3倍速按鈕 ＆ 懸浮倍速選單 (Speed Control & Picker Menu，v1.8.6 改進)**：
      - 突破 YouTube 官方 2.0x 限制，直接在播放器底欄注入專屬 `⚡倍速按鈕`。
-     - 點擊按鈕直接循環切換：`1.0x` ➔ `1.5x` ➔ `2.0x` ➔ `⚡3.0x` ➔ `1.0x`。
-     - 全域快捷鍵：`Shift+S` 循環調速、`Shift+3` 一鍵直達 3.0x 暴衝倍速。
+     - **點擊彈出精緻選單 (Speed Picker Menu)**：點擊按鈕即刻在正上方展開半透明磨砂選單，直覺點選目標倍速（`0.5x`、`0.75x`、`1.0x`、`1.25x`、`1.5x`、`1.75x`、`2.0x`、`2.5x`、`⚡3.0x`），取代原先繁瑣的循環點擊；支援一鍵「🤖 恢復智慧調速」。
+     - 點擊外部或按 `Escape` 自動收合選單。
+     - 全域快捷鍵維持支援：`Shift+S` 循環調速、`Shift+3` 一鍵直達 3.0x 暴衝倍速。
      - 自動防重設：監聽影片 `ratechange` 事件，防止 YouTube SPA 換片或廣告插播後被偷偷重設回 1.0x。
   8. **播放清單自動隨機白名單 (Auto Shuffle for Whitelist Playlists)**：
      - **特定歌單自動隨機**：支援輸入播放清單 ID（純 ID 或完整 YouTube 網址智慧解析），持久化儲存於 `chrome.storage.local`。
      - **遇白名單清單自動啟動**：載入或換片至白名單內的播放清單時，**自動開啟真隨機播放**；離開白名單清單時**自動還原關閉**，保護教學或連貫劇集體驗。
      - **主介面一鍵星號快捷**：在 YouTube 播放清單時，直接提供 `[⭐自動隨機]` / `[★已設自動隨機 (移除)]` 一鍵切換，無需手動複製 ID。
-  9. **純聽音樂模式 (Music Mode 畫面遮擋與省電防中斷，v1.8.5 分頁獨立與白名單聯動加固)**：
-     - **分頁獨立狀態 (Per-Tab Isolation, v1.8.5)**：音樂模式改為純分頁本地狀態，不寫入 `chrome.storage.local` 且不跨分頁同步，分頁 A 隱藏僅分頁 A 隱藏，分頁 B 絕不被波及，每個分頁初始乾淨獨立從 false 開始。
-     - **白名單歌單自動預設開啟音樂模式 (v1.8.5)**：進入白名單歌單時，除了自動真隨機與 1.0x 外，**自動勾選並啟用純聽音樂模式（隱藏畫面）**；離開白名單清單時自動還原關閉。若使用者手動按 Shift+M 切換，即刻解除自動接管，尊重使用者選擇。
-     - **全域 CSS 物理級壓制**：注入 `html.yt-music-mode-active` 與 `#movie_player.yt-music-mode-active` 樣式規則，直接強制 `opacity: 0 !important; visibility: hidden !important;`，徹底隱藏影片、字幕與浮動資訊卡，絕不漏出畫面。
-     - **高層級沉浸遮罩 (`z-index: 58 !important`)**：位於底欄控制列 (`z-index: 60`) 之下、所有畫面與字幕之上，兼顧沉浸感與底欄操控性。
-     - **144p 省電降頻節流**：開啟遮罩時自動將影片解析度降至 `small` (144p)，大幅節省 85% GPU 解碼運算與網路頻寬；關閉時自動還原鎖定畫質。
-     - **背景防中斷 Watchdog**：自動跳過 YouTube「影片已暫停。要繼續觀看嗎？」確認彈窗，並在純音模式下自動秒跳過廣告。
+  9. **純聽音樂模式 (Music Mode 畫面遮擋與省電防中斷，v1.8.6 播放防卡頓加固)**：
+     - **分頁獨立狀態 (Per-Tab Isolation)**：音樂模式為純分頁本地狀態，不寫入 `chrome.storage.local` 且不跨分頁同步，分頁 A 隱藏僅分頁 A 隱藏，分頁 B 絕不被波及。
+     - **白名單歌單自動預設開啟音樂模式**：進入白名單歌單時，除了自動真隨機與 1.0x 外，**自動勾選並啟用純聽音樂模式（隱藏畫面）**；離開白名單清單時自動還原關閉。若使用者手動按 Shift+M 切換，即刻解除自動接管，尊重使用者選擇。
+     - **全域 CSS 物理級壓制與 Video 解碼時鐘守護 (v1.8.6)**：`<video>` 元素嚴格採用 `opacity: 0 !important; pointer-events: none !important;`（絕不使用 `visibility: hidden`，徹底杜絕 Chromium 觸發 Background Video Suspend 導致音訊解碼時鐘中斷卡死）；字幕與浮動資訊卡維持 `visibility: hidden !important;`。
+     - **高層級沉浸遮罩 (`z-index: 58 !important`)**：位於底欄控制列 (`z-index: 60`) 之下、所有畫面與字幕之上，兼顧沉浸感與底欄操控性。點擊空白處透過官方 Player API 安全同步 Play/Pause。
+     - **144p 省電降頻節流與單次發送防抖 (v1.8.6)**：開啟遮罩時將影片解析度降至 `small` (144p)，僅在切換或新影片初次時發送一次訊息，杜絕 1.5 秒 UI 輪詢反覆發送指令打斷 YouTube DASH 緩衝區。關閉時安全還原鎖定畫質。
+     - **Watchdog 安全防中斷與廣告防誤殺機制 (v1.8.6)**：自動跳過 YouTube 暫停確認彈窗；嚴格僅在播放器真正處於 `ad-showing` / `ad-interrupting` 狀態時點擊跳過或加速廣告，徹底移除誤判常駐 `.ytp-ad-player-overlay` DOM 與篡改 `video.currentTime = video.duration` 的致命 Bug，保證正常影片流暢播放絕不卡死。
   10. **零破音與抗底噪防護**：
      - **零溢出軟削頂器 (WaveShaper Soft Clipper, 4x Oversampling)**：最大輸出振幅硬性鎖定 $\le -0.5$ dBFS (峰值 $\le 0.945$)，徹底杜絕外接 DAC 與音效卡削頂爆裂破音 (Clipping Crackles)。
      - **智慧抗底噪門限與向下擴展 (Smart Noise Floor Gate & Downward Expander)**：門限 -46 dBFS，對話暫停時凍結 AGC 並溫和衰減 -8 dB，杜絕每句話之間的「沙沙沙」底噪抽吸 (Pumping)。
@@ -85,8 +86,10 @@
   - [x] 支援 Auto / 1080p / 1440p / 4K / 720p 偏好鎖定
   - [x] 換片智慧向下 Fallback 至最接近之最高可用解析度
   - [x] 與純音模式連動：解除純音時自動還原使用者鎖定畫質
-* [x] 3倍速按鈕 ＆ 倍速控制引擎 (Speed Control，參考 YouTube Tweak)
-  - [x] YouTube 播放器控制列專屬 `⚡倍速按鈕` (`#ytp-speed-btn`)
+* [x] 3倍速按鈕 ＆ 懸浮倍速選單 (Speed Control & Picker Menu)
+  - [x] YouTube 播放器控制列專屬 `⚡倍速按鈕` (`#ytp-speed-btn`)，點擊彈出精緻選單 (0.5x ~ 3.0x)
+  - [x] 支援一鍵「🤖 恢復智慧調速」切換回智慧接管
+  - [x] 點擊外部或按 Escape 自動收合選單
   - [x] 鍵盤快捷鍵 `Shift+S` (循環調速) ＆ `Shift+3` (直達 3.0x 暴衝倍速)
   - [x] 監聽 `ratechange` 事件防止 YouTube 換片/廣告偷重設速度
   - [x] 控制面板整合 4 顆精簡倍速膠囊按鈕 (`1.0x` / `1.5x` / `2.0x` / `⚡3.0x`)
@@ -97,15 +100,17 @@
   - [x] 播放器底欄 `#ytp-speed-btn` 即時回饋紫色微光 `🎵 1.0x` 或 `⚡ 2.0x`
   - [x] 控制面板整合情境動態膠囊徽章與進階微調開關
 
-* [x] 純聽音樂模式 (Music Mode 畫面遮擋與防中斷，v1.8.5 分頁獨立與白名單聯動)
+* [x] 純聽音樂模式 (Music Mode 畫面遮擋與防中斷，v1.8.6 播放防卡頓加固)
   - [x] 分頁獨立隔離 (Per-Tab Isolation)：切換僅影響當前分頁，不寫入全域 storage，不干擾其他分頁
   - [x] 白名單歌單自動開啟音樂模式 (Auto Music Mode on Whitelist)：進入白名單歌單自動遮擋畫面，離開自動還原
-  - [x] 沉浸式暗黑遮罩與音波動畫 (`#yt-music-mode-overlay`)
+  - [x] 沉浸式暗黑遮罩與音波動畫 (`#yt-music-mode-overlay`)，點擊空白處透過官方 Player API 同步 Play/Pause
+  - [x] 解除 Video 解碼懸吊：`<video>` 改用 `opacity: 0` 防止 Chromium 暫停解碼時鐘，字幕維持 `visibility: hidden`
+  - [x] 144p 切換防抖節流：僅在狀態切換或新影片時發送一次，避免 1.5s 輪詢反覆打斷 YouTube DASH 緩衝
+  - [x] Watchdog 防誤殺正常影片：嚴格檢查 `ad-showing`，移除 `.ytp-ad-player-overlay` 誤判與篡改 `video.currentTime` 破壞性操作
   - [x] YouTube 播放器控制列專屬快捷按鈕 (`#ytp-music-mode-btn`)
   - [x] 鍵盤快捷鍵 `Shift+M` 秒速切換
-  - [x] 144p (small) 解析度切換，節省 85% GPU 算力與頻寬
   - [x] 自動跳過 YouTube「影片已暫停。要繼續觀看嗎？」中斷彈窗
-  - [x] 純音模式下自動秒跳過廣告
+  - [x] 純音模式下遇廣告自動點擊跳過或溫和加速通過，絕不卡死
 * [x] 播放清單真隨機 (True Shuffle) 引擎 (`content/content.js`)
   - [x] 預設關閉、Session Storage 單次有效（重開 Chrome 自動關閉）
   - [x] 攔截影片結束與下一首點擊，均勻隨機選取未播歌曲

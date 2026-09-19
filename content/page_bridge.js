@@ -111,6 +111,11 @@
         return;
       }
 
+      // 若目前播放品質已是 targetQuality，避免重複呼叫打斷串流緩衝
+      if (typeof player.getPlaybackQuality === 'function' && player.getPlaybackQuality() === targetQuality) {
+        return;
+      }
+
       const available = typeof player.getAvailableQualityLevels === 'function'
         ? player.getAvailableQualityLevels()
         : [];
@@ -134,6 +139,27 @@
     }
   }
 
+  function togglePlay() {
+    try {
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.getPlayerState === 'function') {
+        const state = player.getPlayerState();
+        // 1 = playing, 2 = paused
+        if (state === 1) {
+          if (typeof player.pauseVideo === 'function') player.pauseVideo();
+        } else {
+          if (typeof player.playVideo === 'function') player.playVideo();
+        }
+        return;
+      }
+      const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+      if (video) {
+        if (video.paused) video.play();
+        else video.pause();
+      }
+    } catch {}
+  }
+
   function applySpeed(speed) {
     try {
       const num = parseFloat(speed);
@@ -154,6 +180,7 @@
   // 監聽來自 Content Script 的指令
   window.addEventListener('message', (event) => {
     try {
+      if (event.source !== window) return;
       if (!event.data) return;
       if (event.data.type === 'YT_NORMALIZER_SET_QUALITY') {
         applyQuality(event.data.quality);
@@ -162,6 +189,8 @@
         applyQuality(currentLockedQuality);
       } else if (event.data.type === 'YT_NORMALIZER_SET_SPEED') {
         applySpeed(event.data.speed);
+      } else if (event.data.type === 'YT_NORMALIZER_TOGGLE_PLAY') {
+        togglePlay();
       }
     } catch {}
   });

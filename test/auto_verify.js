@@ -450,11 +450,43 @@ function cycleSpeed(cur) {
   return SPEED_LEVELS[(idx + 1) % SPEED_LEVELS.length];
 }
 
-it('播放速度應依序循環 1.0x -> 1.5x -> 2.0x -> 3.0x -> 1.0x', () => {
+it('播放速度應依序循環 1.0x -> 1.5x -> 2.0x -> 3.0x -> 1.0x (保留 Shift+S 快捷鍵)', () => {
   assert.strictEqual(cycleSpeed(1.0), 1.5);
   assert.strictEqual(cycleSpeed(1.5), 2.0);
   assert.strictEqual(cycleSpeed(2.0), 3.0);
   assert.strictEqual(cycleSpeed(3.0), 1.0);
+});
+
+const SPEED_MENU_OPTIONS_MOCK = [
+  { speed: 0.5, label: '0.5x' },
+  { speed: 0.75, label: '0.75x' },
+  { speed: 1.0, label: '1.0x (正常)' },
+  { speed: 1.25, label: '1.25x' },
+  { speed: 1.5, label: '1.5x' },
+  { speed: 1.75, label: '1.75x' },
+  { speed: 2.0, label: '2.0x (倍速)' },
+  { speed: 2.5, label: '2.5x' },
+  { speed: 3.0, label: '⚡3.0x (暴衝)' },
+];
+
+it('倍速選單應提供完整的速度梯度選項 (0.5x ~ 3.0x)', () => {
+  const speeds = SPEED_MENU_OPTIONS_MOCK.map((o) => o.speed);
+  assert.deepStrictEqual(speeds, [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]);
+});
+
+it('點選倍速選單項目應正確套用倍速並標記手動覆蓋', () => {
+  let appliedSpeed = null;
+  let overriddenVid = null;
+  const currentVid = 'abc123vid';
+
+  function onSelectSpeedMenuItem(spd) {
+    overriddenVid = currentVid;
+    appliedSpeed = spd;
+  }
+
+  onSelectSpeedMenuItem(1.75);
+  assert.strictEqual(appliedSpeed, 1.75);
+  assert.strictEqual(overriddenVid, currentVid, '點選選單應鎖定當前影片手動覆蓋');
 });
 
 // --------------------------------------------------------------------------
@@ -469,20 +501,52 @@ class MusicModeControllerMock {
     this.videoOpacity = '1';
     this.overlayActive = false;
     this.requestedQuality = null;
+    this.qualitySendCount = 0;
+    this.musicModeQualitySent = false;
   }
 
   applyMusicMode(enabled, lockedQuality = 'auto') {
     this.musicMode = Boolean(enabled);
-    if (this.musicMode) {
+    this.updateMusicModeVisualState(this.musicMode, lockedQuality);
+  }
+
+  updateMusicModeVisualState(enabled, lockedQuality = 'auto') {
+    if (enabled) {
       this.globalClasses.add('yt-music-mode-active');
       this.videoOpacity = '0';
       this.overlayActive = true;
-      this.requestedQuality = 'small';
+      if (!this.musicModeQualitySent) {
+        this.musicModeQualitySent = true;
+        this.qualitySendCount++;
+        this.requestedQuality = 'small';
+      }
     } else {
       this.globalClasses.delete('yt-music-mode-active');
       this.videoOpacity = '1';
       this.overlayActive = false;
-      this.requestedQuality = lockedQuality;
+      if (this.musicModeQualitySent) {
+        this.musicModeQualitySent = false;
+        this.qualitySendCount++;
+        this.requestedQuality = lockedQuality;
+      }
+    }
+  }
+}
+
+// 模擬 Watchdog 安全檢查核心邏輯
+function runWatchdogAdCheckMock({ isMusicMode, isAdPlaying, hasSkipBtn, videoMock, expectedSpeed = 1.0 }) {
+  if (!isMusicMode) return;
+
+  if (hasSkipBtn) {
+    hasSkipBtn.click();
+  } else if (isAdPlaying) {
+    if (videoMock && !videoMock.paused && videoMock.playbackRate < 8) {
+      videoMock.playbackRate = 16;
+    }
+  } else {
+    // 廣告結束還原守護：若殘留於 16x 快進，立即還原至預期正常倍速
+    if (videoMock && videoMock.playbackRate >= 8) {
+      videoMock.playbackRate = expectedSpeed;
     }
   }
 }
@@ -496,6 +560,19 @@ it('啟用純聽音樂模式時應立即加入 yt-music-mode-active、隱藏影�
   assert.strictEqual(controller.videoOpacity, '0');
   assert.strictEqual(controller.overlayActive, true);
   assert.strictEqual(controller.requestedQuality, 'small');
+  assert.strictEqual(controller.qualitySendCount, 1);
+});
+
+it('純聽音樂模式下連續 UI 輪詢維護不應重複發送 SET_QUALITY (防止 DASH 緩衝中斷卡死)', () => {
+  const controller = new MusicModeControllerMock();
+  controller.applyMusicMode(true, 'hd1080');
+  // 模擬 1.5s 定時器與 MutationObserver 連續觸發 5 次 UI 更新
+  for (let i = 0; i < 5; i++) {
+    controller.updateMusicModeVisualState(true, 'hd1080');
+  }
+
+  assert.strictEqual(controller.qualitySendCount, 1, '畫質切換訊息僅送出一次，未重複打斷緩衝');
+  assert.strictEqual(controller.requestedQuality, 'small');
 });
 
 it('關閉純聽音樂模式時應立即移除 yt-music-mode-active、還原影片並恢復鎖定畫質', () => {
@@ -508,6 +585,130 @@ it('關閉純聽音樂模式時應立即移除 yt-music-mode-active、還原影�
   assert.strictEqual(controller.videoOpacity, '1');
   assert.strictEqual(controller.overlayActive, false);
   assert.strictEqual(controller.requestedQuality, 'hd1080');
+});
+
+it('Watchdog 遇到正常影片（即便 DOM 存在常駐 .ytp-ad-player-overlay）絕不可竄改 currentTime 或誤判廣告', () => {
+  const videoMock = {
+    currentTime: 35.0,
+    duration: 240.0,
+    paused: false,
+    playbackRate: 1.0,
+  };
+
+  // 正常影片：未帶有 ad-showing，但 DOM 可能有舊容器
+  runWatchdogAdCheckMock({
+    isMusicMode: true,
+    isAdPlaying: false,
+    hasSkipBtn: null,
+    videoMock,
+  });
+
+  assert.strictEqual(videoMock.currentTime, 35.0, '正常影片播放進度絕不可被篡改為 duration！');
+  assert.strictEqual(videoMock.playbackRate, 1.0, '正常影片播放速度不受影響');
+});
+
+it('Watchdog 遇到真正廣告時，若有跳過按鈕應點擊，若無跳過按鈕應加速通過而非篡改 currentTime', () => {
+  let skipClicked = false;
+  const skipBtnMock = {
+    click: () => { skipClicked = true; },
+  };
+
+  const videoMock = {
+    currentTime: 2.0,
+    duration: 15.0,
+    paused: false,
+    playbackRate: 1.0,
+  };
+
+  // 情境 A：有跳過按鈕
+  runWatchdogAdCheckMock({
+    isMusicMode: true,
+    isAdPlaying: true,
+    hasSkipBtn: skipBtnMock,
+    videoMock,
+  });
+  assert.strictEqual(skipClicked, true, '應點擊跳過按鈕');
+
+  // 情境 B：不可跳過廣告
+  runWatchdogAdCheckMock({
+    isMusicMode: true,
+    isAdPlaying: true,
+    hasSkipBtn: null,
+    videoMock,
+  });
+  assert.strictEqual(videoMock.playbackRate, 16, '不可跳過廣告應以 16x 加速快進');
+  assert.strictEqual(videoMock.currentTime, 2.0, '絕不可篡改 currentTime，防止反廣告停權卡死');
+
+  // 情境 C：廣告結束後，若影片殘留於 16x 快進，應自動還原至預期正常倍速 (1.0x)
+  runWatchdogAdCheckMock({
+    isMusicMode: true,
+    isAdPlaying: false,
+    hasSkipBtn: null,
+    videoMock,
+    expectedSpeed: 1.0,
+  });
+  assert.strictEqual(videoMock.playbackRate, 1.0, '廣告結束後應立即將殘留的 16x 速度還原至正常 1.0x');
+});
+
+it('ratechange 事件監聽器在廣告播放中應跳過干預，防止 16x 與 1x 相互拉扯', () => {
+  let speedSetCount = 0;
+  function handleRateChangeMock({ isAdPlaying, currentRate, expectedRate }) {
+    if (isAdPlaying) return; // 廣告中不干預
+    if (Math.abs(currentRate - expectedRate) > 0.05) {
+      speedSetCount++;
+    }
+  }
+
+  // 廣告期間影片以 16x 播放，不應觸發重設
+  handleRateChangeMock({ isAdPlaying: true, currentRate: 16, expectedRate: 1.0 });
+  assert.strictEqual(speedSetCount, 0, '廣告播放期間不應干涉倍速');
+
+  // 正常影片期間速度被偷改，應觸發重設校正
+  handleRateChangeMock({ isAdPlaying: false, currentRate: 1.5, expectedRate: 1.0 });
+  assert.strictEqual(speedSetCount, 1, '非廣告期間應正常校正倍速');
+});
+
+it('快捷鍵監聽器應透過 composedPath 穿透 Shadow DOM 並攔截 isComposing', () => {
+  function shouldIgnoreKeydownMock({ isComposing, composedPathElements }) {
+    if (isComposing) return true;
+    const isInput = composedPathElements.some((el) => {
+      if (!el || !el.tagName) return false;
+      const tag = el.tagName.toUpperCase();
+      return tag === 'INPUT' || tag === 'TEXTAREA' || Boolean(el.isContentEditable);
+    });
+    return isInput;
+  }
+
+  // 案例 1: 輸入法組字中 (isComposing: true)
+  assert.strictEqual(shouldIgnoreKeydownMock({ isComposing: true, composedPathElements: [{ tagName: 'DIV' }] }), true);
+
+  // 案例 2: YouTube 留言區/聊天室 (Shadow DOM 內部為 INPUT，外部為自訂標籤)
+  const shadowDomPath = [
+    { tagName: 'INPUT', isContentEditable: false },
+    { tagName: 'DIV', isContentEditable: false },
+    { tagName: 'YT-LIVE-CHAT-RENDERER', isContentEditable: false },
+  ];
+  assert.strictEqual(shouldIgnoreKeydownMock({ isComposing: false, composedPathElements: shadowDomPath }), true, '應穿透識別 Shadow DOM 內的 INPUT 元素');
+
+  // 案例 3: 一般頁面空白處或播放器按鍵 (應放行快捷鍵)
+  const normalPath = [{ tagName: 'DIV' }, { tagName: 'BODY' }];
+  assert.strictEqual(shouldIgnoreKeydownMock({ isComposing: false, composedPathElements: normalPath }), false, '一般頁面節點應允許觸發快捷鍵');
+});
+
+it('postMessage 通訊應嚴格過濾 event.source !== window 杜絕跨 frame 偽造', () => {
+  const currentWindowMock = {};
+  const fakeFrameMock = {};
+
+  function receiveMessageMock(event) {
+    if (event.source !== currentWindowMock) return false;
+    if (!event.data) return false;
+    return true;
+  }
+
+  // 惡意 iframe 偽造訊息
+  assert.strictEqual(receiveMessageMock({ source: fakeFrameMock, data: { type: 'YT_NORMALIZER_TOGGLE_PLAY' } }), false, '跨 frame 來源應被阻擋');
+  // 同窗口合法訊息
+  assert.strictEqual(receiveMessageMock({ source: currentWindowMock, data: { type: 'YT_NORMALIZER_TOGGLE_PLAY' } }), true, '同窗口來源應被放行');
 });
 
 // --------------------------------------------------------------------------

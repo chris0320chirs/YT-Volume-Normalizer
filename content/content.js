@@ -25,7 +25,7 @@
   'use strict';
 
   // 版本化 LOADED 旗標：每個版本獨立旗標，避免舊版旗標阻擋新版載入
-  const _VERSION = '1.8.5';
+  const _VERSION = '1.8.6';
   const _FLAG = `__YT_VOLUME_NORMALIZER_${_VERSION.replace(/\./g, '_')}__`;
 
   // 若「當前版本」已載入，直接退出（自我去重保護）
@@ -135,6 +135,8 @@
   let isTrueShuffleEnabled = false;
   let autoEnabledByWhitelist = false; // 標記目前是否由白名單自動接管真隨機
   let autoEnabledMusicMode = false;   // 標記目前是否由白名單自動開啟音樂模式（隱藏畫面）
+  let musicModeQualitySent = false;   // 標記是否已發送 144p 畫質設定，防止定時器重複打斷緩衝
+  let audioWakeListenersBound = false; // 標記全域音訊喚醒監聽器是否已綁定，防止重複堆疊洩漏
   let currentPlaylistId = null;
   const playedVideoIds = new Set();
 
@@ -274,7 +276,9 @@
 
   // 接收 page_bridge.js 官方 Content Loudness 與影片元數據
   window.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'YT_NORMALIZER_CONTENT_LOUDNESS') {
+    try {
+      if (event.source !== window) return;
+      if (event.data && event.data.type === 'YT_NORMALIZER_CONTENT_LOUDNESS') {
       const val = event.data.loudnessDb;
       if (typeof val === 'number' && !isNaN(val)) {
         ytOfficialLoudnessDb = val;
@@ -301,7 +305,8 @@
       // 收到元數據後即時進行智慧音樂辨識與自動調速
       evaluateAndApplySmartSpeed();
     }
-  });
+  } catch {}
+});
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'TOGGLE_TRUE_SHUFFLE') {
@@ -572,8 +577,11 @@
       };
       videoElement.addEventListener('play', wakeAudioCtx);
       videoElement.addEventListener('playing', wakeAudioCtx);
-      document.addEventListener('click', wakeAudioCtx, { passive: true });
-      document.addEventListener('keydown', wakeAudioCtx, { passive: true });
+      if (!audioWakeListenersBound) {
+        audioWakeListenersBound = true;
+        document.addEventListener('click', wakeAudioCtx, { passive: true });
+        document.addEventListener('keydown', wakeAudioCtx, { passive: true });
+      }
       wakeAudioCtx();
 
       updateAudioParameters();
@@ -964,15 +972,20 @@
     style.id = 'yt-music-mode-styles';
     style.textContent = `
       /* 全域純聽音樂模式：物理級強制遮擋影片、字幕與資訊卡，絕不漏光 */
+      /* 注意：video 標籤絕不可使用 visibility: hidden，否則 Chromium 會觸發 Background Video Suspend 導致音訊解碼時鐘中斷卡死 */
       html.yt-music-mode-active video,
       html.yt-music-mode-active .html5-video-container video,
+      #movie_player.yt-music-mode-active video,
+      #movie_player.yt-music-mode-active .html5-video-container video {
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+
       html.yt-music-mode-active .ytp-caption-window-container,
       html.yt-music-mode-active .caption-window,
       html.yt-music-mode-active .ytp-ce-element,
       html.yt-music-mode-active .ytp-cards-teaser,
       html.yt-music-mode-active .ytp-paid-content-overlay,
-      #movie_player.yt-music-mode-active video,
-      #movie_player.yt-music-mode-active .html5-video-container video,
       #movie_player.yt-music-mode-active .ytp-caption-window-container,
       #movie_player.yt-music-mode-active .caption-window,
       #movie_player.yt-music-mode-active .ytp-ce-element,
@@ -1216,6 +1229,145 @@
         0% { box-shadow: 0 0 6px rgba(255, 0, 51, 0.4); }
         100% { box-shadow: 0 0 12px rgba(255, 0, 51, 0.8); }
       }
+
+      /* 播放器速度彈出選單 (Speed Picker Menu) */
+      .ytp-speed-menu {
+        position: absolute;
+        z-index: 65 !important;
+        max-height: calc(100% - 60px);
+        min-width: 172px;
+        background: rgba(18, 19, 26, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        color: #f1f5f9;
+        font-family: 'Roboto', 'YouTube Noto', -apple-system, BlinkMacSystemFont, sans-serif;
+        user-select: none;
+        padding: 6px 0;
+        font-size: 13px;
+        line-height: 1.3;
+        box-sizing: border-box;
+        animation: speedMenuPop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+        transform-origin: bottom right;
+      }
+
+      @keyframes speedMenuPop {
+        from { opacity: 0; transform: translateY(6px) scale(0.96); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      .ytp-speed-menu-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 14px 6px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 4px;
+      }
+
+      .ytp-speed-menu-title {
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #94a3b8;
+        letter-spacing: 0.5px;
+      }
+
+      .ytp-speed-menu-current {
+        font-size: 11px;
+        font-weight: 700;
+        color: #38bdf8;
+      }
+
+      .ytp-speed-menu-list {
+        display: flex;
+        flex-direction: column;
+        max-height: 280px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      }
+
+      .ytp-speed-menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 6px 14px;
+        background: transparent;
+        border: none;
+        color: #cbd5e1;
+        font-size: 13px;
+        font-weight: 500;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+        box-sizing: border-box;
+      }
+
+      .ytp-speed-menu-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+      }
+
+      .ytp-speed-menu-item.active {
+        color: #38bdf8;
+        font-weight: 700;
+        background: rgba(56, 189, 248, 0.12);
+      }
+
+      .ytp-speed-menu-item .speed-check {
+        font-size: 12px;
+        opacity: 0;
+        color: #38bdf8;
+        transform: scale(0.6);
+        transition: all 0.15s ease;
+      }
+
+      .ytp-speed-menu-item.active .speed-check {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      .ytp-speed-menu-item.speed-turbo {
+        color: #f87171;
+      }
+
+      .ytp-speed-menu-item.speed-turbo.active {
+        color: #ff3344;
+        background: rgba(255, 0, 51, 0.15);
+      }
+
+      .ytp-speed-menu-footer {
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        margin-top: 4px;
+        padding: 4px 6px 2px;
+      }
+
+      .ytp-speed-restore-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        background: rgba(168, 85, 247, 0.1);
+        color: #c084fc;
+        font-size: 11.5px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        box-sizing: border-box;
+      }
+
+      .ytp-speed-restore-btn:hover {
+        background: rgba(168, 85, 247, 0.22);
+        border-color: rgba(168, 85, 247, 0.5);
+        color: #e9d5ff;
+      }
     `;
     const target = document.head || document.documentElement;
     if (target) {
@@ -1272,16 +1424,18 @@
           </div>
         `;
 
-        // 點擊遮罩空白處支援播放/暫停
+        // 點擊遮罩空白處支援播放/暫停 (透過 page_bridge 呼叫官方 Player API 保持狀態機同步)
         overlay.addEventListener('click', (e) => {
           try {
+            e.preventDefault();
+            e.stopPropagation(); // 徹底阻斷冒泡至 movie_player，防止雙重 toggle 互消
             if (e.target.closest('#yt-music-mode-card')) {
               return;
             }
-            const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-            if (video) {
-              if (video.paused) video.play();
-              else video.pause();
+            window.postMessage({ type: 'YT_NORMALIZER_TOGGLE_PLAY' }, '*');
+            const playerEl = document.getElementById('movie_player');
+            if (playerEl && typeof playerEl.focus === 'function') {
+              playerEl.focus(); // 鎖定鍵盤焦點於播放器，確保 Space / K 鍵依然生效
             }
           } catch {}
         });
@@ -1385,8 +1539,11 @@
       if (video) {
         video.style.opacity = '0';
       }
-      // 送出 144p 節能節流訊息給 page_bridge.js
-      window.postMessage({ type: 'YT_NORMALIZER_SET_QUALITY', quality: 'small' }, '*');
+      // 送出 144p 節能節流訊息給 page_bridge.js (僅在狀態切換或新影片時發送一次，絕不在 1.5s 輪詢中重複打斷 DASH 緩衝)
+      if (!musicModeQualitySent) {
+        musicModeQualitySent = true;
+        window.postMessage({ type: 'YT_NORMALIZER_LOCK_QUALITY', quality: 'small' }, '*');
+      }
     } else {
       document.documentElement.classList.remove('yt-music-mode-active');
       if (player) player.classList.remove('yt-music-mode-active');
@@ -1400,8 +1557,11 @@
       if (video) {
         video.style.opacity = '1';
       }
-      // 恢復原本設定之畫質
-      applyLockedQuality(currentSettings.lockedQuality);
+      // 恢復原本設定之畫質 (僅在剛離開音樂模式時發送一次)
+      if (musicModeQualitySent) {
+        musicModeQualitySent = false;
+        applyLockedQuality(currentSettings.lockedQuality);
+      }
     }
   }
 
@@ -1553,6 +1713,10 @@
       video.playbackRate = num;
     }
     updateSpeedButtonDisplay(num);
+    const menu = document.getElementById('ytp-speed-menu');
+    if (menu && menu.style.display !== 'none') {
+      renderSpeedMenu(menu);
+    }
   }
 
   function cyclePlaybackSpeed() {
@@ -1567,6 +1731,156 @@
       if (chrome.storage && chrome.storage.local) {
         chrome.storage.local.set({ playbackSpeed: nextSpeed });
       }
+    } catch {}
+  }
+
+  const SPEED_MENU_OPTIONS = [
+    { speed: 0.5, label: '0.5x' },
+    { speed: 0.75, label: '0.75x' },
+    { speed: 1.0, label: '1.0x (正常)' },
+    { speed: 1.25, label: '1.25x' },
+    { speed: 1.5, label: '1.5x' },
+    { speed: 1.75, label: '1.75x' },
+    { speed: 2.0, label: '2.0x (倍速)' },
+    { speed: 2.5, label: '2.5x' },
+    { speed: 3.0, label: '⚡3.0x (暴衝)' },
+  ];
+
+  function ensureSpeedMenu() {
+    try {
+      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (!player) return null;
+
+      let menu = document.getElementById('ytp-speed-menu');
+      if (!menu || !menu.isConnected) {
+        if (menu && !menu.isConnected) {
+          try { menu.remove(); } catch {}
+        }
+        menu = document.createElement('div');
+        menu.id = 'ytp-speed-menu';
+        menu.className = 'ytp-speed-menu';
+        menu.style.display = 'none';
+
+        // 阻止點擊選單內部冒泡到播放器觸發播放/暫停
+        menu.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+
+        player.appendChild(menu);
+      }
+      return menu;
+    } catch {
+      return null;
+    }
+  }
+
+  function closeSpeedMenu() {
+    try {
+      const menu = document.getElementById('ytp-speed-menu');
+      if (menu) {
+        menu.style.display = 'none';
+      }
+    } catch {}
+  }
+
+  function renderSpeedMenu(menu) {
+    if (!menu) return;
+    const currentSpeed = parseFloat(currentSettings.playbackSpeed) || 1.0;
+    const currentVid = getCurrentVideoIdFromUrl();
+    const isOverridden = Boolean(manualSpeedOverriddenVideoId && manualSpeedOverriddenVideoId === currentVid);
+
+    let listHtml = '';
+    for (const opt of SPEED_MENU_OPTIONS) {
+      const isActive = Math.abs(currentSpeed - opt.speed) < 0.05;
+      const isTurbo = opt.speed === 3.0;
+      listHtml += `
+        <button class="ytp-speed-menu-item ${isActive ? 'active' : ''} ${isTurbo ? 'speed-turbo' : ''}" data-speed="${opt.speed}" type="button">
+          <span class="speed-label">${opt.label}</span>
+          <span class="speed-check">✓</span>
+        </button>
+      `;
+    }
+
+    const showRestore = currentSettings.smartSpeedEnabled && isOverridden;
+    const footerHtml = showRestore ? `
+      <div class="ytp-speed-menu-footer">
+        <button class="ytp-speed-restore-btn" id="ytp-speed-restore-action" type="button">
+          <span>🤖</span>
+          <span>恢復智慧調速 (${currentVideoIsMusic ? '1.0x' : '2.0x'})</span>
+        </button>
+      </div>
+    ` : '';
+
+    menu.innerHTML = `
+      <div class="ytp-speed-menu-header">
+        <span class="ytp-speed-menu-title">播放速度</span>
+        <span class="ytp-speed-menu-current">${currentSpeed.toFixed(currentSpeed % 1 === 0 ? 1 : 2)}x</span>
+      </div>
+      <div class="ytp-speed-menu-list">
+        ${listHtml}
+      </div>
+      ${footerHtml}
+    `;
+
+    // 綁定倍速點選事件
+    menu.querySelectorAll('.ytp-speed-menu-item').forEach((item) => {
+      item.addEventListener('click', (e) => {
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+          const spd = parseFloat(item.getAttribute('data-speed'));
+          if (!isNaN(spd)) {
+            manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+            applyPlaybackSpeed(spd);
+            if (chrome.storage && chrome.storage.local) {
+              chrome.storage.local.set({ playbackSpeed: spd });
+            }
+          }
+          closeSpeedMenu();
+        } catch {}
+      });
+    });
+
+    // 綁定恢復智慧調速事件
+    const restoreBtn = menu.querySelector('#ytp-speed-restore-action');
+    if (restoreBtn) {
+      restoreBtn.addEventListener('click', (e) => {
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+          manualSpeedOverriddenVideoId = null;
+          evaluateAndApplySmartSpeed(true);
+          closeSpeedMenu();
+        } catch {}
+      });
+    }
+  }
+
+  function toggleSpeedMenu() {
+    try {
+      const menu = ensureSpeedMenu();
+      if (!menu) return;
+
+      if (menu.style.display !== 'none') {
+        closeSpeedMenu();
+        return;
+      }
+
+      renderSpeedMenu(menu);
+
+      // 動態定位於倍速按鈕正上方
+      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      const btn = document.getElementById('ytp-speed-btn');
+      if (player && btn) {
+        const playerRect = player.getBoundingClientRect();
+        const btnRect = btn.getBoundingClientRect();
+        const rightOffset = playerRect.right - btnRect.right;
+        menu.style.right = `${Math.max(8, rightOffset - 16)}px`;
+        const bottomOffset = playerRect.bottom - btnRect.top + 8;
+        menu.style.bottom = `${bottomOffset}px`;
+      }
+
+      menu.style.display = 'block';
     } catch {}
   }
 
@@ -1591,15 +1905,15 @@
       btn.className = 'ytp-button ytp-speed-btn';
       if (currentVideoIsMusic) {
         btn.classList.add('speed-music');
-        btn.title = `智慧調速：已識別為音樂歌曲 (${num.toFixed(1)}x 原速) · 點擊切換倍速`;
+        btn.title = `智慧調速：已識別為音樂歌曲 (${num.toFixed(1)}x 原速) · 點擊選擇倍速`;
       } else if (num === 3.0) {
         btn.classList.add('speed-turbo');
-        btn.title = `智慧調速：一般影片 (⚡3.0x 暴衝速) · 點擊切換倍速`;
+        btn.title = `智慧調速：一般影片 (⚡3.0x 暴衝速) · 點擊選擇倍速`;
       } else if (num > 1.0) {
         btn.classList.add('speed-boosted');
-        btn.title = `智慧調速：一般影片 (${num.toFixed(1)}x 倍速) · 點擊切換倍速`;
+        btn.title = `智慧調速：一般影片 (${num.toFixed(1)}x 倍速) · 點擊選擇倍速`;
       } else {
-        btn.title = `智慧調速：一般影片 (1.0x) · 點擊切換倍速`;
+        btn.title = `智慧調速：一般影片 (1.0x) · 點擊選擇倍速`;
       }
     }
   }
@@ -1619,7 +1933,7 @@
         const btn = document.createElement('button');
         btn.id = 'ytp-speed-btn';
         btn.className = 'ytp-button ytp-speed-btn';
-        btn.setAttribute('title', '播放速度：點擊循環切換 (1.0x / 1.5x / 2.0x / 3.0x) [Shift+S / Shift+3]');
+        btn.setAttribute('title', '播放速度：點擊選擇倍速 [快捷鍵 Shift+S / Shift+3]');
         btn.setAttribute('aria-label', '播放速度');
         btn.innerHTML = `<span class="ytp-speed-badge" id="ytp-speed-badge">1.0x</span>`;
 
@@ -1627,7 +1941,7 @@
           try {
             e.preventDefault();
             e.stopPropagation();
-            cyclePlaybackSpeed();
+            toggleSpeedMenu();
           } catch {}
         });
 
@@ -1665,8 +1979,14 @@
 
   // 監聽鍵盤快捷鍵 (Shift+M / Shift+S / Shift+3)
   document.addEventListener('keydown', (e) => {
-    const tag = e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (e.isComposing) return; // 輸入法注音/拼音組字中放行
+    const path = e.composedPath ? e.composedPath() : [e.target];
+    const isInput = path.some((el) => {
+      if (!el || !el.tagName) return false;
+      const tag = el.tagName.toUpperCase();
+      return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+    });
+    if (isInput) return;
     
     // Shift+M: 純聽音樂模式切換（分頁獨立，不寫 storage）
     if (e.shiftKey && (e.key === 'M' || e.key === 'm')) {
@@ -1690,7 +2010,26 @@
       applyPlaybackSpeed(target);
       chrome.storage.local.set({ playbackSpeed: target });
     }
+    // Escape: 關閉倍速選單
+    else if (e.key === 'Escape') {
+      closeSpeedMenu();
+    }
   });
+
+  // 點擊選單外部自動收合倍速選單
+  document.addEventListener('click', (e) => {
+    try {
+      const menu = document.getElementById('ytp-speed-menu');
+      if (!menu || menu.style.display === 'none') return;
+      if (!e.target.closest('#ytp-speed-menu') && !e.target.closest('#ytp-speed-btn')) {
+        closeSpeedMenu();
+      }
+    } catch {}
+  }, true);
+
+  // 全螢幕切換與視窗大小變更時自動收合選單，防止座標漂移
+  document.addEventListener('fullscreenchange', closeSpeedMenu);
+  window.addEventListener('resize', closeSpeedMenu);
 
   // 多分頁切換時同步情境倍速 (Tab Context Re-synchronization)
   function onTabContextSynchronize() {
@@ -1735,6 +2074,10 @@
   document.addEventListener('ratechange', (e) => {
     try {
       if (e.target && e.target.tagName === 'VIDEO') {
+        const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+        const isAdPlaying = player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'));
+        if (isAdPlaying) return; // 廣告播放中不干預加速
+
         const expected = parseFloat(currentSettings.playbackSpeed) || 1.0;
         if (Math.abs(e.target.playbackRate - expected) > 0.05) {
           setTimeout(() => {
@@ -1769,15 +2112,29 @@
 
         // 2. 純音模式下自動跳過廣告 (Auto Skip Ads)
         if (currentSettings.musicMode) {
-          const skipBtn = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
-          if (skipBtn && skipBtn.offsetParent !== null) {
+          // 點擊官方跳過廣告按鈕
+          const skipBtn = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-text.ytp-ad-skip-button-text, button.ytp-ad-skip-button-modern, .ytp-ad-skip-button-container button');
+          if (skipBtn && (skipBtn.offsetParent !== null || skipBtn.offsetWidth > 0)) {
             skipBtn.click();
-          }
-          const adShowing = document.querySelector('.ad-showing, .ytp-ad-player-overlay');
-          if (adShowing) {
-            const video = document.querySelector('video.html5-main-video');
-            if (video && !isNaN(video.duration) && video.duration > 0) {
-              video.currentTime = video.duration;
+          } else {
+            // 嚴格檢查主播放器容器是否真正處於廣告中 (ad-showing / ad-interrupting)
+            // 嚴禁判定常駐子元素 .ytp-ad-player-overlay（此為 YouTube 常駐 DOM，會導致正常影片被誤判）
+            // 絕不可使用破壞性的 video.currentTime = duration（會導致正常影片直接跳至結尾卡死，或觸發反廣告無限旋轉圈）
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            const isAdPlaying = player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'));
+            if (isAdPlaying) {
+              const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+              if (video && !video.paused && video.playbackRate < 8) {
+                video.playbackRate = 16;
+              }
+            } else {
+              // 廣告已結束：若影片仍殘留於 16x 快進，立即自動還原至預期倍速
+              const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+              if (video && video.playbackRate >= 8) {
+                const expected = parseFloat(currentSettings.playbackSpeed) || 1.0;
+                video.playbackRate = expected;
+                window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: expected }, '*');
+              }
             }
           }
         }
@@ -1842,6 +2199,8 @@
 
   window.addEventListener('yt-navigate-finish', () => {
     try {
+      closeSpeedMenu();
+      musicModeQualitySent = false;
       resetVideoLoudnessState();
       setTimeout(() => {
         findAndHookVideo();
@@ -1857,6 +2216,8 @@
 
   window.addEventListener('popstate', () => {
     try {
+      closeSpeedMenu();
+      musicModeQualitySent = false;
       resetVideoLoudnessState();
       setTimeout(() => {
         findAndHookVideo();
