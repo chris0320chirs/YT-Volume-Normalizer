@@ -233,8 +233,11 @@
       checkPlaylistContext();
       sendResponse({ status: 'ok', isTrueShuffleEnabled });
     } else if (msg.type === 'TOGGLE_MUSIC_MODE') {
-      chrome.storage.local.set({ musicMode: Boolean(msg.enabled) });
-      sendResponse({ status: 'ok', musicMode: Boolean(msg.enabled) });
+      const isEnabled = Boolean(msg.enabled);
+      currentSettings.musicMode = isEnabled;
+      chrome.storage.local.set({ musicMode: isEnabled });
+      applyMusicMode(isEnabled);
+      sendResponse({ status: 'ok', musicMode: isEnabled });
     } else if (msg.type === 'SET_LOCKED_QUALITY') {
       currentSettings.lockedQuality = msg.quality || 'auto';
       chrome.storage.local.set({ lockedQuality: currentSettings.lockedQuality });
@@ -851,14 +854,38 @@
     const style = document.createElement('style');
     style.id = 'yt-music-mode-styles';
     style.textContent = `
-      /* YouTube 純聽音樂遮罩 */
+      /* 全域純聽音樂模式：物理級強制遮擋影片、字幕與資訊卡，絕不漏光 */
+      html.yt-music-mode-active video,
+      html.yt-music-mode-active .html5-video-container video,
+      html.yt-music-mode-active .ytp-caption-window-container,
+      html.yt-music-mode-active .caption-window,
+      html.yt-music-mode-active .ytp-ce-element,
+      html.yt-music-mode-active .ytp-cards-teaser,
+      html.yt-music-mode-active .ytp-paid-content-overlay,
+      #movie_player.yt-music-mode-active video,
+      #movie_player.yt-music-mode-active .html5-video-container video,
+      #movie_player.yt-music-mode-active .ytp-caption-window-container,
+      #movie_player.yt-music-mode-active .caption-window,
+      #movie_player.yt-music-mode-active .ytp-ce-element,
+      #movie_player.yt-music-mode-active .ytp-cards-teaser,
+      #movie_player.yt-music-mode-active .ytp-paid-content-overlay {
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+
+      #movie_player.yt-music-mode-active {
+        background: #08080c !important;
+      }
+
+      /* YouTube 純聽音樂高層級沉浸遮罩 (z-index 58 位於底欄 60 之下，所有影片與字幕之上) */
       .yt-music-mode-overlay {
         position: absolute !important;
         top: 0 !important;
         left: 0 !important;
         width: 100% !important;
         height: 100% !important;
-        z-index: 25 !important;
+        z-index: 58 !important;
         background: radial-gradient(circle at center, #181924 0%, #08080c 100%) !important;
         display: none;
         align-items: center;
@@ -997,12 +1024,21 @@
 
       /* 控制列按鈕 */
       .ytp-music-mode-btn {
+        width: 44px !important;
+        min-width: 44px !important;
+        height: 100% !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
         position: relative;
         text-align: center;
         vertical-align: top;
       }
 
       .ytp-music-mode-btn svg {
+        width: 22px !important;
+        height: 22px !important;
         fill: #eeeeee;
         transition: fill 0.2s ease, filter 0.2s ease, transform 0.15s ease;
       }
@@ -1072,7 +1108,14 @@
         100% { box-shadow: 0 0 12px rgba(255, 0, 51, 0.8); }
       }
     `;
-    document.head.appendChild(style);
+    const target = document.head || document.documentElement;
+    if (target) {
+      target.appendChild(style);
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        (document.head || document.documentElement).appendChild(style);
+      });
+    }
   }
 
   function ensureMusicModeUi() {
@@ -1145,6 +1188,7 @@
         e.preventDefault();
         e.stopPropagation();
         const next = !currentSettings.musicMode;
+        applyMusicMode(next);
         chrome.storage.local.set({ musicMode: next });
       });
 
@@ -1179,8 +1223,11 @@
     const overlay = document.getElementById('yt-music-mode-overlay');
     const btn = document.getElementById('ytp-music-mode-btn');
     const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
 
     if (enabled) {
+      document.documentElement.classList.add('yt-music-mode-active');
+      if (player) player.classList.add('yt-music-mode-active');
       if (overlay) {
         overlay.classList.add('active');
         updateMusicModeMetadata();
@@ -1195,6 +1242,8 @@
       // 送出 144p 節能節流訊息給 page_bridge.js
       window.postMessage({ type: 'YT_NORMALIZER_SET_QUALITY', quality: 'small' }, '*');
     } else {
+      document.documentElement.classList.remove('yt-music-mode-active');
+      if (player) player.classList.remove('yt-music-mode-active');
       if (overlay) {
         overlay.classList.remove('active');
       }
@@ -1449,6 +1498,7 @@
     if (e.shiftKey && (e.key === 'M' || e.key === 'm')) {
       e.preventDefault();
       const next = !currentSettings.musicMode;
+      applyMusicMode(next);
       chrome.storage.local.set({ musicMode: next });
     }
     // Shift+S: 播放速度循環切換 (1.0x -> 1.5x -> 2.0x -> 3.0x)

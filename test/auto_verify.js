@@ -458,6 +458,59 @@ it('播放速度應依序循環 1.0x -> 1.5x -> 2.0x -> 3.0x -> 1.0x', () => {
 });
 
 // --------------------------------------------------------------------------
+// 測試模組 8: 純聽音樂模式 (Music Mode) 遮擋與狀態切換邏輯
+// --------------------------------------------------------------------------
+console.log('\n--- 測試 8: 純聽音樂模式 (Music Mode) 遮擋與狀態切換 ---');
+
+class MusicModeControllerMock {
+  constructor() {
+    this.musicMode = false;
+    this.globalClasses = new Set();
+    this.videoOpacity = '1';
+    this.overlayActive = false;
+    this.requestedQuality = null;
+  }
+
+  applyMusicMode(enabled, lockedQuality = 'auto') {
+    this.musicMode = Boolean(enabled);
+    if (this.musicMode) {
+      this.globalClasses.add('yt-music-mode-active');
+      this.videoOpacity = '0';
+      this.overlayActive = true;
+      this.requestedQuality = 'small';
+    } else {
+      this.globalClasses.delete('yt-music-mode-active');
+      this.videoOpacity = '1';
+      this.overlayActive = false;
+      this.requestedQuality = lockedQuality;
+    }
+  }
+}
+
+it('啟用純聽音樂模式時應立即加入 yt-music-mode-active、隱藏影片並切換 small 畫質', () => {
+  const controller = new MusicModeControllerMock();
+  controller.applyMusicMode(true, 'hd1080');
+
+  assert.strictEqual(controller.musicMode, true);
+  assert.strictEqual(controller.globalClasses.has('yt-music-mode-active'), true);
+  assert.strictEqual(controller.videoOpacity, '0');
+  assert.strictEqual(controller.overlayActive, true);
+  assert.strictEqual(controller.requestedQuality, 'small');
+});
+
+it('關閉純聽音樂模式時應立即移除 yt-music-mode-active、還原影片並恢復鎖定畫質', () => {
+  const controller = new MusicModeControllerMock();
+  controller.applyMusicMode(true, 'hd1080');
+  controller.applyMusicMode(false, 'hd1080');
+
+  assert.strictEqual(controller.musicMode, false);
+  assert.strictEqual(controller.globalClasses.has('yt-music-mode-active'), false);
+  assert.strictEqual(controller.videoOpacity, '1');
+  assert.strictEqual(controller.overlayActive, false);
+  assert.strictEqual(controller.requestedQuality, 'hd1080');
+});
+
+// --------------------------------------------------------------------------
 // 總結統計
 // --------------------------------------------------------------------------
 console.log('\n====================================================');

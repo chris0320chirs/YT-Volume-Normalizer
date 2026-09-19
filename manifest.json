@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube 音量鎖定 ＆ 純音強化版 (YT Volume, Speed & Quality)",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "YouTube 音量鎖定（零破音抗噪）＋ 純聽音樂黑屏遮罩 ＋ 智慧歌曲辨識自動調速（聽歌 1.0x / 看片 2.0x）＋ 3倍速播放 ＆ 固定畫質 ＋ 播放清單白名單自動隨機。",
   "icons": {
     "16": "icons/icon16.png",
