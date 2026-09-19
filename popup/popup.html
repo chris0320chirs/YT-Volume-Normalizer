@@ -3,202 +3,194 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube 音量範圍鎖定器與真隨機</title>
+  <title>YouTube 音量鎖定 ＆ 純音模式</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="app-container">
-    <!-- Header: 標題與總開關 -->
-    <header class="header">
+    <!-- Header: 簡約標題列 + 總開關 -->
+    <header class="app-header">
       <div class="brand">
         <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
             <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
             <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
           </svg>
         </div>
-        <div class="brand-text">
+        <div class="brand-info">
           <div class="title-row">
-            <h1 class="title">音量鎖定 ＆ 真隨機</h1>
-            <span class="badge-lookahead" title="4x超取樣零溢出軟限制器與智慧抗底噪門限：100% 杜絕破音與底噪雜音">🛡️零破音抗噪</span>
+            <h1 class="brand-title">YT 音量鎖定</h1>
+            <span class="brand-badge">純音版</span>
           </div>
-          <span class="subtitle">太小調高・太大調低・無偏隨機</span>
+          <span class="brand-desc">太小調高・太大調低・無偏隨機</span>
         </div>
       </div>
       
-      <!-- 主切換開關 (音量等化) -->
-      <label class="switch" title="開啟/關閉音量自動調高與調低功能">
+      <!-- 主音量鎖定開關 -->
+      <label class="switch" title="開啟/關閉音量自動鎖定">
         <input type="checkbox" id="toggle-enabled" checked>
         <span class="slider"></span>
       </label>
     </header>
 
-    <!-- 核心設定：耳朵目標固定音量 -->
-    <section class="section target-section">
-      <div class="section-header">
-        <span class="section-label">設定目標固定音量</span>
-        <div class="volume-badge-group">
-          <span class="volume-badge" id="target-val-display">50%</span>
-          <button type="button" class="btn-reset" id="btn-reset-target" title="重設為預設推薦音量 50%">重設</button>
+    <!-- 主卡片：目標音量調節 -->
+    <section class="card volume-card">
+      <div class="card-row">
+        <span class="section-label">目標聆聽音量</span>
+        <div class="val-group">
+          <span class="val-badge" id="target-val-display">50%</span>
+          <button type="button" class="btn-reset" id="btn-reset-target" title="重設為預設推薦音量 50%">50% 推薦</button>
         </div>
       </div>
 
-      <div class="slider-wrapper">
+      <div class="slider-box">
         <input type="range" id="target-slider" min="0" max="100" step="1" value="50">
-        <div class="slider-ticks">
-          <span>0% (靜音)</span>
-          <span class="tick-mid">25% (安靜)</span>
-          <span class="tick-rec">50% (剛好・推薦)</span>
-          <span class="tick-mid">75% (偏大)</span>
-          <span>100% (強勁)</span>
+        <div class="slider-marks">
+          <span>0%</span>
+          <span class="mark-mid">25%</span>
+          <span class="mark-rec">50% 推薦</span>
+          <span class="mark-mid">75%</span>
+          <span>100%</span>
         </div>
       </div>
-      <p class="helper-text">以 50% 為剛剛好的舒適基準，太小聲自動調高、太大聲自動調低，可自由上下微調。</p>
+
+      <!-- 即時動態狀態膠囊與纖細 VU 能量線 -->
+      <div class="live-status-row">
+        <div class="status-pill status-idle" id="status-pill">
+          <span class="dot"></span>
+          <span class="status-label" id="status-text">待命中</span>
+        </div>
+        <span class="comp-offset" id="comp-value-badge">+0.0 dB</span>
+      </div>
+      <div class="vu-track">
+        <div class="vu-fill" id="vu-fill"></div>
+      </div>
     </section>
 
-    <!-- 即時自動調節狀態卡片 (太小自動調高 / 在範圍內 / 太大自動調低) -->
-    <section class="section status-section">
-      <div class="status-card">
-        <div class="status-card-header">
-          <span class="status-title">即時調節狀態</span>
-          <span class="status-badge" id="lock-status-badge">待命中</span>
+    <!-- 播放速度 ＆ 固定畫質卡片 -->
+    <section class="card playback-card">
+      <div class="card-row">
+        <span class="section-label">播放速度</span>
+        <div class="speed-group" id="speed-group">
+          <button type="button" class="btn-speed active" data-speed="1">1.0x</button>
+          <button type="button" class="btn-speed" data-speed="1.5">1.5x</button>
+          <button type="button" class="btn-speed" data-speed="2">2.0x</button>
+          <button type="button" class="btn-speed btn-speed-turbo" data-speed="3" title="3倍速暴衝 (快捷鍵 Shift+3)">⚡3.0x</button>
         </div>
+      </div>
 
-        <!-- 三態動態指示列 -->
-        <div class="tri-state-bar">
-          <div class="state-pill" id="pill-boosting">
-            <span class="pill-icon">⬆️</span>
-            <span class="pill-text">太小・自動調高</span>
-          </div>
-          <div class="state-pill" id="pill-locked">
-            <span class="pill-icon">🎯</span>
-            <span class="pill-text">在設定範圍內</span>
-          </div>
-          <div class="state-pill" id="pill-cutting">
-            <span class="pill-icon">⬇️</span>
-            <span class="pill-text">太大・自動調低</span>
-          </div>
-        </div>
-
-        <!-- 即時補償數值說明 -->
-        <div class="compensation-banner" id="comp-banner">
-          <div class="comp-main-row">
-            <span class="comp-label">當前即時補償：</span>
-            <span class="comp-value" id="comp-value-badge">0.0 dB</span>
-            <span class="comp-desc" id="comp-desc">音量維持在設定範圍內</span>
-          </div>
-          <div class="comp-sub-row" id="official-loudness-row" style="display:none;">
-            <span class="comp-sub-label">官方預錄響度：</span>
-            <span class="comp-sub-value" id="official-loudness-val">0.0 dB</span>
-          </div>
-        </div>
-
-        <!-- VU 動態量表 (含目標區間標記) -->
-        <div class="vu-wrapper">
-          <div class="vu-track">
-            <div class="vu-target-marker" id="vu-target-marker" title="您設定的目標音量區間"></div>
-            <div class="vu-fill" id="vu-fill"></div>
-            <div class="vu-peak" id="vu-peak"></div>
-          </div>
-          <div class="vu-ticks">
-            <span>-48dB</span>
-            <span>-24dB</span>
-            <span class="target-tick">設定目標區間</span>
-            <span>-6dB</span>
-            <span class="peak-label">0dB</span>
-          </div>
+      <div class="card-row card-row-quality">
+        <span class="section-label">固定畫質</span>
+        <div class="quality-select-wrap">
+          <select id="select-quality" class="quality-select">
+            <option value="auto">自動 (預設)</option>
+            <option value="hd1080">1080p (Full HD 推薦)</option>
+            <option value="hd1440">1440p (2K 高畫質)</option>
+            <option value="hd2160">2160p (4K 極致)</option>
+            <option value="hd720">720p (HD 節流)</option>
+          </select>
         </div>
       </div>
     </section>
 
-    <!-- 鎖定容許範圍 (Tightness) -->
-    <section class="section tightness-section">
-      <div class="section-header">
-        <span class="section-label">音量範圍嚴格度</span>
-      </div>
-      <div class="tightness-grid">
-        <label class="tightness-card">
-          <input type="radio" name="range-tightness" value="strict" checked>
-          <div class="tightness-content">
-            <span class="tightness-title">嚴格鎖定 (±1dB)</span>
-            <span class="tightness-desc">極致平整，絕不容許忽大忽小 (預設)</span>
-          </div>
-        </label>
-        <label class="tightness-card">
-          <input type="radio" name="range-tightness" value="standard">
-          <div class="tightness-content">
-            <span class="tightness-title">標準舒適 (±2dB)</span>
-            <span class="tightness-desc">兼具自然語氣</span>
-          </div>
-        </label>
-        <label class="tightness-card">
-          <input type="radio" name="range-tightness" value="wide">
-          <div class="tightness-content">
-            <span class="tightness-title">寬鬆動態 (±3.5dB)</span>
-            <span class="tightness-desc">保留電影交響樂起伏</span>
-          </div>
-        </label>
-      </div>
-    </section>
-
-    <!-- 等化風格模式 (Normalizer Mode) -->
-    <section class="section mode-section">
-      <div class="section-header">
-        <span class="section-label">等化風格模式</span>
-      </div>
-      <div class="mode-grid">
-        <label class="mode-card">
-          <input type="radio" name="normalizer-mode" value="standard" checked>
-          <div class="mode-content">
-            <span class="mode-title">📻 廣播級恆定</span>
-            <span class="mode-desc">10:1 廣播平整，零落差</span>
-          </div>
-        </label>
-        <label class="mode-card">
-          <input type="radio" name="normalizer-mode" value="vocal">
-          <div class="mode-content">
-            <span class="mode-title">🗣️ 人聲強效</span>
-            <span class="mode-desc">強化微弱低語，清晰清晰</span>
-          </div>
-        </label>
-        <label class="mode-card">
-          <input type="radio" name="normalizer-mode" value="music">
-          <div class="mode-content">
-            <span class="mode-title">🎵 音樂原味</span>
-            <span class="mode-desc">保留旋律呼吸與動態</span>
-          </div>
-        </label>
-      </div>
-    </section>
-
-    <!-- 播放清單真隨機 (True Shuffle) -->
-    <section class="section shuffle-section">
-      <div class="section-header">
-        <span class="section-label">播放清單真隨機</span>
-        <span class="badge-session" title="單次有效：重開 Chrome 會自動回到關閉">重開自動關閉</span>
-      </div>
-
-      <div class="shuffle-card">
-        <div class="shuffle-left">
-          <div class="shuffle-title-row">
-            <span class="shuffle-icon">🔀</span>
-            <span class="shuffle-title">啟用無偏見真隨機</span>
-          </div>
-          <span class="shuffle-status-tag" id="shuffle-playlist-tag">未偵測到播放清單</span>
-          <p class="shuffle-helper">徹底打亂整個清單，破除演算法偏頗與重複播放。預設關閉且不記憶，關閉瀏覽器自動重設為關閉。</p>
+    <!-- 核心功能切換列表 -->
+    <section class="feature-list">
+      <!-- 功能 1: 純聽音樂模式 (遮擋畫面) -->
+      <div class="feature-card" id="feature-music-mode">
+        <div class="feature-icon icon-music">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h6V3h-8z"/>
+          </svg>
         </div>
+        <div class="feature-body">
+          <div class="feature-title-row">
+            <span class="feature-name">純聽音樂 (遮擋畫面)</span>
+            <span class="badge-kbd" title="鍵盤快捷鍵：Shift+M">Shift+M</span>
+          </div>
+          <span class="feature-hint">黑屏遮罩・省電降溫・專注好音樂</span>
+        </div>
+        <label class="switch switch-sm" title="一鍵遮擋影片畫面">
+          <input type="checkbox" id="toggle-music-mode">
+          <span class="slider"></span>
+        </label>
+      </div>
 
-        <label class="switch switch-shuffle" title="開啟/關閉真隨機播放">
+      <!-- 功能 2: 播放清單真隨機 (True Shuffle) -->
+      <div class="feature-card" id="feature-shuffle">
+        <div class="feature-icon icon-shuffle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 3h5v5"></path>
+            <path d="M4 20L21 3"></path>
+            <path d="M21 16v5h-5"></path>
+            <path d="M15 15l6 6"></path>
+            <path d="M4 4l5 5"></path>
+          </svg>
+        </div>
+        <div class="feature-body">
+          <div class="feature-title-row">
+            <span class="feature-name">播放清單真隨機</span>
+            <span class="badge-session" title="單次工作階段有效，重啟瀏覽器自動關閉">重開重設</span>
+          </div>
+          <span class="feature-hint" id="shuffle-status-hint">完全打亂・無偏見均勻隨機輪播</span>
+        </div>
+        <label class="switch switch-sm" title="開啟/關閉播放清單真隨機">
           <input type="checkbox" id="toggle-shuffle">
           <span class="slider"></span>
         </label>
       </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="footer">
-      <span class="footer-tip">音量設定全域記憶・真隨機單次有效（重啟自動關閉）</span>
+    <!-- 進階微調 (預設優雅收合) -->
+    <section class="advanced-wrap">
+      <button type="button" class="btn-advanced" id="btn-toggle-advanced" aria-expanded="false">
+        <span>⚙️ 進階微調</span>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 9l6 6 6-6"></path>
+        </svg>
+      </button>
+
+      <div class="advanced-content" id="advanced-content">
+        <div class="adv-group">
+          <span class="adv-label">音量鎖定嚴格度</span>
+          <div class="segmented-control">
+            <label class="seg-item">
+              <input type="radio" name="range-tightness" value="strict" checked>
+              <span>嚴格 (±1dB)</span>
+            </label>
+            <label class="seg-item">
+              <input type="radio" name="range-tightness" value="standard">
+              <span>標準 (±2dB)</span>
+            </label>
+            <label class="seg-item">
+              <input type="radio" name="range-tightness" value="wide">
+              <span>寬鬆 (±3.5dB)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="adv-group">
+          <span class="adv-label">調音風格模式</span>
+          <div class="segmented-control">
+            <label class="seg-item">
+              <input type="radio" name="normalizer-mode" value="standard" checked>
+              <span>廣播恆定</span>
+            </label>
+            <label class="seg-item">
+              <input type="radio" name="normalizer-mode" value="vocal">
+              <span>人聲強化</span>
+            </label>
+            <label class="seg-item">
+              <input type="radio" name="normalizer-mode" value="music">
+              <span>音樂原味</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="app-footer">
+      <span class="footer-note">零破音軟限制器 ＆ 智慧抗底噪門限守護中</span>
     </footer>
   </div>
 

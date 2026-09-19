@@ -54,14 +54,90 @@
 
   // 監聽 YouTube 導航完成事件
   window.addEventListener('yt-navigate-finish', () => {
-    extractAndSendLoudness();
-    setTimeout(extractAndSendLoudness, 200);
-    setTimeout(extractAndSendLoudness, 600);
+    onNavigateReapply();
   });
 
   window.addEventListener('loadstart', () => {
-    extractAndSendLoudness();
+    onNavigateReapply();
   }, true);
+
+  const QUALITY_PRIORITY = ['hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
+  let currentLockedQuality = 'auto';
+
+  function applyQuality(targetQuality) {
+    try {
+      const player = document.getElementById('movie_player');
+      if (!player) return;
+
+      if (!targetQuality || targetQuality === 'auto') {
+        if (typeof player.setPlaybackQualityRange === 'function') {
+          player.setPlaybackQualityRange('auto', 'auto');
+        } else if (typeof player.setPlaybackQuality === 'function') {
+          player.setPlaybackQuality('auto');
+        }
+        return;
+      }
+
+      const available = typeof player.getAvailableQualityLevels === 'function'
+        ? player.getAvailableQualityLevels()
+        : [];
+
+      let chosen = targetQuality;
+      if (available.length > 0 && !available.includes(targetQuality)) {
+        const prefIdx = QUALITY_PRIORITY.indexOf(targetQuality);
+        const fallbackList = prefIdx >= 0 ? QUALITY_PRIORITY.slice(prefIdx) : QUALITY_PRIORITY;
+        const matched = fallbackList.find((q) => available.includes(q));
+        chosen = matched || available[0];
+      }
+
+      if (typeof player.setPlaybackQualityRange === 'function') {
+        player.setPlaybackQualityRange(chosen, chosen);
+      }
+      if (typeof player.setPlaybackQuality === 'function') {
+        player.setPlaybackQuality(chosen);
+      }
+    } catch (e) {
+      // 容錯防護
+    }
+  }
+
+  function applySpeed(speed) {
+    try {
+      const num = parseFloat(speed);
+      if (isNaN(num) || num <= 0) return;
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.setPlaybackRate === 'function') {
+        player.setPlaybackRate(num);
+      }
+      const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+      if (video) {
+        video.playbackRate = num;
+      }
+    } catch (e) {
+      // 容錯防護
+    }
+  }
+
+  // 監聽來自 Content Script 的指令
+  window.addEventListener('message', (event) => {
+    if (!event.data) return;
+    if (event.data.type === 'YT_NORMALIZER_SET_QUALITY') {
+      applyQuality(event.data.quality);
+    } else if (event.data.type === 'YT_NORMALIZER_LOCK_QUALITY') {
+      currentLockedQuality = event.data.quality || 'auto';
+      applyQuality(currentLockedQuality);
+    } else if (event.data.type === 'YT_NORMALIZER_SET_SPEED') {
+      applySpeed(event.data.speed);
+    }
+  });
+
+  function onNavigateReapply() {
+    extractAndSendLoudness();
+    if (currentLockedQuality && currentLockedQuality !== 'auto') {
+      setTimeout(() => applyQuality(currentLockedQuality), 300);
+      setTimeout(() => applyQuality(currentLockedQuality), 1000);
+    }
+  }
 
   // 初始嘗試提取
   extractAndSendLoudness();

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YouTube 音量範圍鎖定器與真隨機 (YT Volume & True Shuffle)",
-  "version": "1.4.0",
-  "description": "YouTube 音量範圍鎖定器（零破音軟限制器、智慧抗底噪門限、太小自動調高、太大自動調低）與播放清單真隨機播放。",
+  "name": "YouTube 音量鎖定 ＆ 純音強化版 (YT Volume, Speed & Quality)",
+  "version": "1.6.0",
+  "description": "YouTube 音量鎖定（零破音抗噪）＋ 純聽音樂黑屏遮罩 ＋ 3倍速播放 ＆ 固定畫質 ＋ 播放清單真隨機。",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -15,7 +15,7 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "YouTube 音量範圍鎖定器與真隨機"
+    "default_title": "YouTube 音量鎖定 ＆ 純音強化版"
   },
   "background": {
     "service_worker": "background/background.js"
