@@ -10,14 +10,28 @@
 
   function extractAndSendLoudness() {
     let loudnessDb = null;
+    let videoCategory = null;
+    let videoTitle = null;
+    let videoAuthor = null;
+    let musicVideoType = null;
 
     try {
       // 途徑 1: 存取 YouTube 播放器實例的 API
       const player = document.getElementById('movie_player');
       if (player && typeof player.getPlayerResponse === 'function') {
         const res = player.getPlayerResponse();
-        if (res && res.playerConfig && res.playerConfig.audioConfig) {
-          loudnessDb = res.playerConfig.audioConfig.loudnessDb;
+        if (res) {
+          if (res.playerConfig && res.playerConfig.audioConfig) {
+            loudnessDb = res.playerConfig.audioConfig.loudnessDb;
+          }
+          if (res.microformat && res.microformat.playerMicroformatRenderer) {
+            videoCategory = res.microformat.playerMicroformatRenderer.category || null;
+          }
+          if (res.videoDetails) {
+            videoTitle = res.videoDetails.title || null;
+            videoAuthor = res.videoDetails.author || null;
+            musicVideoType = res.videoDetails.musicVideoType || null;
+          }
         }
       }
 
@@ -33,23 +47,38 @@
       }
 
       // 途徑 3: 存取全域初始播放器響應物件
-      if (loudnessDb === null && window.ytInitialPlayerResponse) {
-        const audioCfg = window.ytInitialPlayerResponse?.playerConfig?.audioConfig;
-        if (audioCfg && audioCfg.loudnessDb !== undefined) {
-          loudnessDb = audioCfg.loudnessDb;
+      if (window.ytInitialPlayerResponse) {
+        const initRes = window.ytInitialPlayerResponse;
+        if (loudnessDb === null && initRes?.playerConfig?.audioConfig?.loudnessDb !== undefined) {
+          loudnessDb = initRes.playerConfig.audioConfig.loudnessDb;
+        }
+        if (!videoCategory && initRes?.microformat?.playerMicroformatRenderer?.category) {
+          videoCategory = initRes.microformat.playerMicroformatRenderer.category;
+        }
+        if (!videoTitle && initRes?.videoDetails?.title) {
+          videoTitle = initRes.videoDetails.title;
+        }
+        if (!videoAuthor && initRes?.videoDetails?.author) {
+          videoAuthor = initRes.videoDetails.author;
+        }
+        if (!musicVideoType && initRes?.videoDetails?.musicVideoType) {
+          musicVideoType = initRes.videoDetails.musicVideoType;
         }
       }
     } catch (err) {
       // 忽略跨域或未初始化例外
     }
 
-    if (loudnessDb !== null && !isNaN(loudnessDb)) {
-      window.postMessage({
-        type: 'YT_NORMALIZER_CONTENT_LOUDNESS',
-        loudnessDb: parseFloat(loudnessDb),
-        url: window.location.href,
-      }, '*');
-    }
+    // 發送響度與官方影片分類元數據
+    window.postMessage({
+      type: 'YT_NORMALIZER_CONTENT_LOUDNESS',
+      loudnessDb: (loudnessDb !== null && !isNaN(loudnessDb)) ? parseFloat(loudnessDb) : null,
+      category: videoCategory,
+      title: videoTitle,
+      author: videoAuthor,
+      musicVideoType: musicVideoType,
+      url: window.location.href,
+    }, '*');
   }
 
   // 監聽 YouTube 導航完成事件

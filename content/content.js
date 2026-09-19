@@ -35,7 +35,10 @@
     mode: 'standard',         // 'standard' (日常平衡) | 'vocal' (人聲強化) | 'music' (音樂原味)
     musicMode: false,         // 純聽音樂模式 (遮擋畫面、節能省電、專注好音樂)
     lockedQuality: 'auto',    // 固定畫質: 'auto' | 'hd2160' | 'hd1440' | 'hd1080' | 'hd720'
-    playbackSpeed: 1.0,       // 播放速度: 1.0 | 1.5 | 2.0 | 3.0
+    playbackSpeed: 2.0,       // 當前播放速度 (預設 2.0x 滿足看片習慣)
+    smartSpeedEnabled: true,  // 智慧音樂與影片自動調速 (聽歌 1.0x，看片 2.0x)
+    musicSpeed: 1.0,          // 聽歌 / 音樂時自動套用之速度 (預設 1.0x)
+    videoSpeed: 2.0,          // 一般影片時自動套用之速度 (預設 2.0x)
     shuffleWhitelist: [],     // 自動隨機白名單播放清單 ID 清單 (例如 ['PLxxxx', 'OLAK5uy_...'])
     volumeVersion: 2,         // 版本升級標記，自動將舊版數值平滑遷移至 50%
   };
@@ -97,6 +100,19 @@
   let currentPlaylistId = null;
   const playedVideoIds = new Set();
 
+  /* ==========================================================================
+     智慧音樂與影片自動調速 (Smart Music & Video Speed) 狀態
+     ========================================================================== */
+  let lastEvaluatedVideoId = null;
+  let manualSpeedOverriddenVideoId = null; // 當前被使用者手動覆蓋速度的影片 ID
+  let currentVideoIsMusic = false;         // 當前影片是否判定為音樂
+  const currentVideoMetadata = {
+    category: null,
+    title: null,
+    author: null,
+    musicVideoType: null,
+  };
+
   /**
    * 生成 65536 點超高精度零溢出雙曲正切軟削頂曲線
    * |x| <= 0.80: 絕對 1:1 線性純淨輸出 (0 畸變)
@@ -156,6 +172,9 @@
           if (k === 'musicMode') musicModeChanged = true;
           if (k === 'lockedQuality') applyLockedQuality(v.newValue);
           if (k === 'playbackSpeed') applyPlaybackSpeed(v.newValue);
+          if (k === 'smartSpeedEnabled' || k === 'musicSpeed' || k === 'videoSpeed') {
+            evaluateAndApplySmartSpeed(true);
+          }
           if (k === 'shuffleWhitelist') {
             currentSettings.shuffleWhitelist = Array.isArray(v.newValue) ? v.newValue : [];
             checkPlaylistContext();
@@ -176,7 +195,7 @@
     }
   });
 
-  // 接收 page_bridge.js 官方 Content Loudness
+  // 接收 page_bridge.js 官方 Content Loudness 與影片元數據
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'YT_NORMALIZER_CONTENT_LOUDNESS') {
       const val = event.data.loudnessDb;
@@ -195,6 +214,15 @@
           pipeline.macroGain.gain.setTargetAtTime(macroGainVal, audioCtx.currentTime, 0.05);
         }
       }
+
+      // 更新官方影片元數據
+      if (event.data.category !== undefined) currentVideoMetadata.category = event.data.category;
+      if (event.data.title !== undefined) currentVideoMetadata.title = event.data.title;
+      if (event.data.author !== undefined) currentVideoMetadata.author = event.data.author;
+      if (event.data.musicVideoType !== undefined) currentVideoMetadata.musicVideoType = event.data.musicVideoType;
+
+      // 收到元數據後即時進行智慧音樂辨識與自動調速
+      evaluateAndApplySmartSpeed();
     }
   });
 
@@ -215,9 +243,21 @@
     } else if (msg.type === 'SET_PLAYBACK_SPEED') {
       const speed = parseFloat(msg.speed) || 1.0;
       currentSettings.playbackSpeed = speed;
+      manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl(); // 使用者主動手動設定速度，鎖定當前影片
       chrome.storage.local.set({ playbackSpeed: speed });
       applyPlaybackSpeed(speed);
       sendResponse({ status: 'ok', playbackSpeed: speed });
+    } else if (msg.type === 'SET_SMART_SPEED_CONFIG') {
+      if (msg.smartSpeedEnabled !== undefined) currentSettings.smartSpeedEnabled = Boolean(msg.smartSpeedEnabled);
+      if (msg.musicSpeed !== undefined) currentSettings.musicSpeed = parseFloat(msg.musicSpeed) || 1.0;
+      if (msg.videoSpeed !== undefined) currentSettings.videoSpeed = parseFloat(msg.videoSpeed) || 2.0;
+      chrome.storage.local.set({
+        smartSpeedEnabled: currentSettings.smartSpeedEnabled,
+        musicSpeed: currentSettings.musicSpeed,
+        videoSpeed: currentSettings.videoSpeed,
+      });
+      evaluateAndApplySmartSpeed(true);
+      sendResponse({ status: 'ok' });
     } else if (msg.type === 'GET_PLAYLIST_STATUS') {
       sendResponse(getPlaylistStats());
     }
@@ -376,6 +416,10 @@
     lastAppliedTargetDb = 0;
     currentStatusMode = 'locked';
     ytOfficialLoudnessDb = null;
+    currentVideoMetadata.category = null;
+    currentVideoMetadata.title = null;
+    currentVideoMetadata.author = null;
+    currentVideoMetadata.musicVideoType = null;
     checkPlaylistContext();
   }
 
@@ -627,7 +671,11 @@
       isAutoShuffle: autoEnabledByWhitelist,
       isMusicMode: Boolean(currentSettings.musicMode),
       lockedQuality: currentSettings.lockedQuality || 'auto',
-      playbackSpeed: currentSettings.playbackSpeed || 1.0,
+      playbackSpeed: currentSettings.playbackSpeed || 2.0,
+      isMusicDetected: currentVideoIsMusic,
+      smartSpeedEnabled: Boolean(currentSettings.smartSpeedEnabled),
+      musicSpeed: currentSettings.musicSpeed || 1.0,
+      videoSpeed: currentSettings.videoSpeed || 2.0,
     };
 
     for (const port of activePorts) {
@@ -999,6 +1047,13 @@
         border: 1px solid rgba(56, 189, 248, 0.35);
       }
 
+      .ytp-speed-btn.speed-music .ytp-speed-badge {
+        color: #c084fc;
+        background: rgba(168, 85, 247, 0.22);
+        border: 1px solid rgba(168, 85, 247, 0.45);
+        box-shadow: 0 0 6px rgba(168, 85, 247, 0.4);
+      }
+
       .ytp-speed-btn.speed-turbo .ytp-speed-badge {
         color: #ff0033;
         background: rgba(255, 0, 51, 0.25);
@@ -1168,6 +1223,127 @@
     window.postMessage({ type: 'YT_NORMALIZER_LOCK_QUALITY', quality: currentSettings.lockedQuality }, '*');
   }
 
+  /**
+   * 多層級智慧音樂歌曲檢測 (Smart Music Detector)
+   */
+  function evaluateIsMusicVideo() {
+    // 1. 純聽音樂模式開啟中
+    if (currentSettings.musicMode) {
+      return { isMusic: true, reason: '純聽音樂模式' };
+    }
+
+    // 2. 白名單歌單或 YouTube 官方音樂清單 (OLAK5uy, RDMM, RD, LM)
+    const listId = getPlaylistIdFromUrl();
+    if (listId) {
+      if (Array.isArray(currentSettings.shuffleWhitelist) && currentSettings.shuffleWhitelist.includes(listId)) {
+        return { isMusic: true, reason: `白名單歌單 (${listId})` };
+      }
+      if (listId.startsWith('OLAK5uy_') || listId.startsWith('RDMM') || listId.startsWith('RD') || listId === 'LM') {
+        return { isMusic: true, reason: `官方音樂合輯/專輯清單 (${listId})` };
+      }
+    }
+
+    // 3. 官方分類元數據 Category === 'Music' (最高信度官方標註)
+    const category = currentVideoMetadata.category || '';
+    if (category && category.toLowerCase() === 'music') {
+      return { isMusic: true, reason: '官方分類標籤：Music' };
+    }
+
+    // 4. 官方音樂影片類型 (MUSIC_VIDEO_TYPE_OMV / ATV / UGC 等)
+    const mType = currentVideoMetadata.musicVideoType || '';
+    if (mType && String(mType).toUpperCase().includes('MUSIC')) {
+      return { isMusic: true, reason: `官方音樂類型：${mType}` };
+    }
+
+    // 5. YouTube 官方 Topic 音樂頻道 (例如 "Artist - Topic")
+    const domAuthor = document.querySelector('ytd-channel-name a, #channel-name a')?.textContent?.trim() || '';
+    const author = currentVideoMetadata.author || domAuthor;
+    if (author.endsWith(' - Topic') || author.endsWith('- Topic')) {
+      return { isMusic: true, reason: `官方主題音樂頻道 (${author})` };
+    }
+
+    // 6. 官方音樂人徽章 (Musical Note Badge / Verified Artist)
+    const artistBadge = document.querySelector(
+      'ytd-channel-name yt-icon[title*="音樂"], ytd-channel-name yt-icon[aria-label*="音樂"], ' +
+      'ytd-channel-name yt-icon[aria-label*="Artist"], ytd-channel-name yt-icon[title*="Artist"], ' +
+      'ytd-channel-name .badge-style-type-verified-artist'
+    );
+    if (artistBadge) {
+      return { isMusic: true, reason: '官方音樂人認證標章' };
+    }
+
+    // 7. 說明欄官方音樂版權結構化資訊 (Music in this video / 歌曲 / 演出者)
+    const structuredDesc = document.querySelector(
+      'ytd-structured-description-content-renderer, ytd-metadata-row-container-renderer'
+    );
+    if (structuredDesc) {
+      const descText = structuredDesc.textContent || '';
+      if (
+        descText.includes('Music in this video') ||
+        descText.includes('這部影片中的音樂') ||
+        (descText.includes('歌曲') && descText.includes('演出者'))
+      ) {
+        return { isMusic: true, reason: '說明欄包含官方版權音樂資訊' };
+      }
+    }
+
+    // 8. 影片標題強特徵規則 (MV / Official Music Video / Official Audio 等)
+    const domTitle = document.querySelector('h1.ytd-watch-metadata, h1.title')?.textContent?.trim() || document.title || '';
+    const title = currentVideoMetadata.title || domTitle;
+    const musicTitlePatterns = [
+      /\bofficial\s+(music\s+)?video\b/i,
+      /\bofficial\s+audio\b/i,
+      /\bofficial\s+lyric\s+video\b/i,
+      /\blyric(s)?\s+video\b/i,
+      /\b(mv|m\/v)\b/i,
+      /\b(feat\.|ft\.)\b/i,
+      /\b(remix|instrumental|ost|soundtrack|bgm)\b/i,
+      /「.*」\s*(official\s+video|mv)/i,
+      /【.*】\s*(official\s+video|mv|動畫MV|音樂錄影帶)/i,
+    ];
+    if (musicTitlePatterns.some((pattern) => pattern.test(title))) {
+      return { isMusic: true, reason: '標題命中音樂關鍵字特徵' };
+    }
+
+    return { isMusic: false, reason: '一般影片' };
+  }
+
+  /**
+   * 智慧評估並套用倍速 (聽歌 1.0x，看片 2.0x)
+   */
+  function evaluateAndApplySmartSpeed(isUserAction = false) {
+    const currentVid = getCurrentVideoIdFromUrl();
+
+    // 若換片了，清除舊影片的手動覆蓋
+    if (currentVid && currentVid !== lastEvaluatedVideoId) {
+      manualSpeedOverriddenVideoId = null;
+      lastEvaluatedVideoId = currentVid;
+    }
+
+    const evaluation = evaluateIsMusicVideo();
+    currentVideoIsMusic = evaluation.isMusic;
+
+    // 若未開啟智慧調速，直接套用全域 playbackSpeed
+    if (!currentSettings.smartSpeedEnabled) {
+      applyPlaybackSpeed(currentSettings.playbackSpeed || 2.0);
+      return;
+    }
+
+    // 若目前影片已被使用者手動指定過速度，且非主動重置，則尊重使用者的手動選擇
+    if (manualSpeedOverriddenVideoId === currentVid && !isUserAction) {
+      return;
+    }
+
+    // 根據音樂或一般影片自動切換速度 (音樂預設 1.0x，一般預設 2.0x)
+    const targetSpeed = currentVideoIsMusic
+      ? (parseFloat(currentSettings.musicSpeed) || 1.0)
+      : (parseFloat(currentSettings.videoSpeed) || 2.0);
+
+    console.log(`[YT Smart Speed] 評估結果: ${currentVideoIsMusic ? '🎵 音樂歌曲' : '🎬 一般影片'} (${evaluation.reason}) ➔ 自動套用速度: ${targetSpeed}x`);
+
+    applyPlaybackSpeed(targetSpeed);
+  }
+
   function applyPlaybackSpeed(speed) {
     const num = parseFloat(speed) || 1.0;
     currentSettings.playbackSpeed = num;
@@ -1180,6 +1356,7 @@
   }
 
   function cyclePlaybackSpeed() {
+    manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl(); // 使用者主動點擊，鎖定當前影片手動速度
     const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
     let idx = SPEED_LEVELS.indexOf(cur);
     if (idx === -1) idx = 0;
@@ -1193,18 +1370,32 @@
     const badge = document.getElementById('ytp-speed-badge');
     const btn = document.getElementById('ytp-speed-btn');
     const num = parseFloat(speed) || 1.0;
+
     if (badge) {
-      badge.textContent = num === 3.0 ? '⚡3.0x' : `${num.toFixed(1)}x`;
+      if (currentVideoIsMusic) {
+        badge.textContent = `🎵${num.toFixed(1)}x`;
+      } else if (num === 3.0) {
+        badge.textContent = '⚡3.0x';
+      } else if (num > 1.0) {
+        badge.textContent = `⚡${num.toFixed(1)}x`;
+      } else {
+        badge.textContent = `${num.toFixed(1)}x`;
+      }
     }
+
     if (btn) {
-      if (num === 3.0) {
+      btn.className = 'ytp-button ytp-speed-btn';
+      if (currentVideoIsMusic) {
+        btn.classList.add('speed-music');
+        btn.title = `智慧調速：已識別為音樂歌曲 (${num.toFixed(1)}x 原速) · 點擊切換倍速`;
+      } else if (num === 3.0) {
         btn.classList.add('speed-turbo');
-        btn.classList.remove('speed-boosted');
+        btn.title = `智慧調速：一般影片 (⚡3.0x 暴衝速) · 點擊切換倍速`;
       } else if (num > 1.0) {
         btn.classList.add('speed-boosted');
-        btn.classList.remove('speed-turbo');
+        btn.title = `智慧調速：一般影片 (${num.toFixed(1)}x 倍速) · 點擊切換倍速`;
       } else {
-        btn.classList.remove('speed-boosted', 'speed-turbo');
+        btn.title = `智慧調速：一般影片 (1.0x) · 點擊切換倍速`;
       }
     }
   }
@@ -1258,11 +1449,13 @@
     // Shift+S: 播放速度循環切換 (1.0x -> 1.5x -> 2.0x -> 3.0x)
     else if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
       e.preventDefault();
+      manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
       cyclePlaybackSpeed();
     }
     // Shift+3: 一鍵直達 3.0x (再次按下還原 1.0x)
     else if (e.shiftKey && (e.key === '3' || e.key === '#')) {
       e.preventDefault();
+      manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
       const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
       const target = cur === 3.0 ? 1.0 : 3.0;
       applyPlaybackSpeed(target);
@@ -1342,7 +1535,7 @@
       updateMusicModeMetadata();
       checkPlaylistContext();
       applyLockedQuality(currentSettings.lockedQuality);
-      applyPlaybackSpeed(currentSettings.playbackSpeed);
+      evaluateAndApplySmartSpeed();
     }, 150);
   });
   window.addEventListener('popstate', () => {
@@ -1352,7 +1545,7 @@
       updateMusicModeMetadata();
       checkPlaylistContext();
       applyLockedQuality(currentSettings.lockedQuality);
-      applyPlaybackSpeed(currentSettings.playbackSpeed);
+      evaluateAndApplySmartSpeed();
     }, 150);
   });
   document.addEventListener('play', (e) => {

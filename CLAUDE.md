@@ -3,12 +3,17 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.7.0 (自動隨機白名單歌單・固定畫質 ＆ 3倍速強化版)**
+* 當前版本：**v1.8.0 (智慧音樂辨識調速・自動隨機白名單・固定畫質 ＆ 3倍速強化版)**
 * 核心運作原則：
   1. **太小聲的影片**：自動平滑調高（安全上限 +12 dB），拯救微弱錄音，同時杜絕底噪放大。
   2. **太大聲的影片或廣告**：自動即刻調低（最高 -18 dB），防止突發爆音驚嚇。
   3. **目標音量範圍**：所有影片播放時，輸出音量嚴格維持在使用者在彈出視窗設定的音量範圍內（50% 基準點）。
-  4. **固定畫質 (Lock Quality，參考 YouTube Tweak)**：
+  4. **智慧歌曲辨識自動調速 (Smart Speed Context Detection，v1.8.0 新增)**：
+     - 8 層級 YouTube 官方與語義混合辨識（Category: Music、musicVideoType、Topic 官方頻道、藝人認證徽章、說明欄版權資訊、白名單歌單、標題強特徵）。
+     - 聽歌 / 音樂歌曲時自動套用 **1.0x 原速**；一般影片時自動套用 **2.0x 倍速**。
+     - 單片手動覆蓋保護（Manual Override）：使用者若在單一影片內手動切換速度，換片前不強制重設，換片後自動重新評估。
+     - 播放器底欄 `#ytp-speed-btn` 即時回饋紫色微光 `🎵 1.0x` 或 `⚡ 2.0x`。
+  5. **固定畫質 (Lock Quality，參考 YouTube Tweak)**：
      - 使用者可自由鎖定偏好解析度（自動 / 1080p FHD / 1440p 2K / 4K / 720p HD）。
      - 換片時自動強制套用；若影片不支援設定畫質，智慧向下 Fallback 至最接近的最高可用畫質。
      - 與純聽音樂模式完美聯動：純音黑屏時降至 144p 省電，關閉純音時自動秒速還原使用者鎖定之畫質。
@@ -75,6 +80,13 @@
   - [x] 鍵盤快捷鍵 `Shift+S` (循環調速) ＆ `Shift+3` (直達 3.0x 暴衝倍速)
   - [x] 監聽 `ratechange` 事件防止 YouTube 換片/廣告偷重設速度
   - [x] 控制面板整合 4 顆精簡倍速膠囊按鈕 (`1.0x` / `1.5x` / `2.0x` / `⚡3.0x`)
+* [x] 智慧歌曲辨識自動調速引擎 (Smart Speed Context Detection，v1.8.0 新增)
+  - [x] 8 層級全方位音樂歌曲特徵辨識 (Category: Music, musicVideoType, Topic 頻道, 藝人認證徽章, 說明欄版權資訊, 白名單歌單, 標題強關鍵字)
+  - [x] 換片智慧自動調速：音樂歌曲自動切換 1.0x 原速，一般影片自動切換 2.0x 倍速
+  - [x] 單片手動覆蓋保護 (Manual Override)：手動調整當前影片速度後不強制重設，換片後自動重新評估
+  - [x] 播放器底欄 `#ytp-speed-btn` 即時回饋紫色微光 `🎵 1.0x` 或 `⚡ 2.0x`
+  - [x] 控制面板整合情境動態膠囊徽章與進階微調開關
+
 * [x] 純聽音樂模式 (Music Mode 畫面遮擋與防中斷)
   - [x] 沉浸式暗黑遮罩與音波動畫 (`#yt-music-mode-overlay`)
   - [x] YouTube 播放器控制列專屬快捷按鈕 (`#ytp-music-mode-btn`)

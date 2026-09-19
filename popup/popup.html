@@ -71,11 +71,14 @@
     <!-- 播放速度 ＆ 固定畫質卡片 -->
     <section class="card playback-card">
       <div class="card-row">
-        <span class="section-label">播放速度</span>
+        <div class="label-with-badge">
+          <span class="section-label">播放速度</span>
+          <span class="speed-smart-badge" id="speed-smart-badge" title="智慧自動調速：偵測音樂自動 1.0x，看片自動 2.0x">🎵 音樂 1.0x</span>
+        </div>
         <div class="speed-group" id="speed-group">
-          <button type="button" class="btn-speed active" data-speed="1">1.0x</button>
+          <button type="button" class="btn-speed" data-speed="1">1.0x</button>
           <button type="button" class="btn-speed" data-speed="1.5">1.5x</button>
-          <button type="button" class="btn-speed" data-speed="2">2.0x</button>
+          <button type="button" class="btn-speed active" data-speed="2">2.0x</button>
           <button type="button" class="btn-speed btn-speed-turbo" data-speed="3" title="3倍速暴衝 (快捷鍵 Shift+3)">⚡3.0x</button>
         </div>
       </div>
@@ -188,6 +191,18 @@
               <span>音樂原味</span>
             </label>
           </div>
+        </div>
+
+        <!-- 智慧情境自動調速設定 -->
+        <div class="adv-group adv-group-smart-speed">
+          <div class="adv-label-row">
+            <span class="adv-label">智慧歌曲自動調速</span>
+            <label class="switch switch-xs" title="自動識別歌曲切換 1.0x，一般影片 2.0x">
+              <input type="checkbox" id="toggle-smart-speed" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="smart-speed-hint">🎵 聽歌自動 1.0x 原速 · 🎬 看片自動 2.0x 倍速</div>
         </div>
 
         <!-- 白名單歌單管理區塊 -->

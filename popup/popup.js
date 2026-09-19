@@ -12,7 +12,10 @@ document.addEventListener('DOMContentLoaded', () => {
     mode: 'standard',
     musicMode: false,
     lockedQuality: 'auto',
-    playbackSpeed: 1.0,
+    playbackSpeed: 2.0,
+    smartSpeedEnabled: true,
+    musicSpeed: 1.0,
+    videoSpeed: 2.0,
     shuffleWhitelist: [],
     volumeVersion: 2,
   };
@@ -31,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // 速度與畫質控制元素
   const speedButtons = document.querySelectorAll('.btn-speed');
+  const speedSmartBadge = document.getElementById('speed-smart-badge');
   const selectQuality = document.getElementById('select-quality');
 
   const toggleMusicMode = document.getElementById('toggle-music-mode');
@@ -41,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const btnToggleAdvanced = document.getElementById('btn-toggle-advanced');
   const advancedContent = document.getElementById('advanced-content');
+  const toggleSmartSpeed = document.getElementById('toggle-smart-speed');
   const tightnessRadios = document.querySelectorAll('input[name="range-tightness"]');
   const modeRadios = document.querySelectorAll('input[name="normalizer-mode"]');
 
@@ -57,6 +62,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentShuffleWhitelist = [];
   let currentDetectedPlaylistId = '';
   let isCurrentPlaylistWhitelisted = false;
+  let currentVideoIsMusic = false;
+  let isSmartSpeedEnabled = true;
+
 
   // 1. 初始化讀取 Local 設定 (含 v2 50% 基準平滑遷移)
   chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS, (stored) => {
@@ -93,7 +101,13 @@ document.addEventListener('DOMContentLoaded', () => {
       selectQuality.value = settings.lockedQuality;
     }
 
-    updateSpeedButtonState(settings.playbackSpeed || 1.0);
+    isSmartSpeedEnabled = settings.smartSpeedEnabled !== false;
+    if (toggleSmartSpeed) {
+      toggleSmartSpeed.checked = isSmartSpeedEnabled;
+    }
+
+    updateSpeedButtonState(settings.playbackSpeed || (currentVideoIsMusic ? 1.0 : 2.0));
+    updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, settings.playbackSpeed);
 
     const targetTightness = document.querySelector(`input[name="range-tightness"][value="${settings.rangeTightness}"]`);
     if (targetTightness) targetTightness.checked = true;
@@ -103,6 +117,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateContainerDisabledState(settings.enabled);
   }
+
+  function updateSmartSpeedBadge(smartEnabled, isMusic, currentSpeed) {
+    if (!speedSmartBadge) return;
+    const speedNum = parseFloat(currentSpeed) || (isMusic ? 1.0 : 2.0);
+    if (!smartEnabled) {
+      speedSmartBadge.className = 'speed-smart-badge off';
+      speedSmartBadge.textContent = '智慧關閉';
+      speedSmartBadge.title = '智慧歌曲自動調速已關閉，可在下方進階微調開啟';
+    } else if (isMusic) {
+      speedSmartBadge.className = 'speed-smart-badge';
+      speedSmartBadge.textContent = `🎵 音樂 ${speedNum.toFixed(1)}x`;
+      speedSmartBadge.title = `智慧情境：已識別為音樂歌曲，自動切換 1.0x 原速`;
+    } else {
+      speedSmartBadge.className = 'speed-smart-badge video';
+      speedSmartBadge.textContent = `🎬 看片 ${speedNum.toFixed(1)}x`;
+      speedSmartBadge.title = `智慧情境：已識別為一般影片，自動切換 2.0x 倍速`;
+    }
+  }
+
 
   function updateSpeedButtonState(speed) {
     const num = parseFloat(speed) || 1.0;
@@ -169,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => {
       const speed = parseFloat(btn.getAttribute('data-speed')) || 1.0;
       updateSpeedButtonState(speed);
+      updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, speed);
       chrome.storage.local.set({ playbackSpeed: speed });
 
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -181,6 +215,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   });
+
+  // 6.1 智慧歌曲自動調速開關 (Smart Speed Toggle)
+  if (toggleSmartSpeed) {
+    toggleSmartSpeed.addEventListener('change', () => {
+      const isChecked = toggleSmartSpeed.checked;
+      isSmartSpeedEnabled = isChecked;
+      chrome.storage.local.set({ smartSpeedEnabled: isChecked });
+      updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, null);
+
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs[0] && tabs[0].id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            type: 'SET_SMART_SPEED_CONFIG',
+            smartSpeedEnabled: isChecked,
+          }).catch(() => {});
+        }
+      });
+    });
+  }
 
   // 7. 固定最高畫質下拉切換
   if (selectQuality) {
@@ -417,6 +470,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if ('playbackSpeed' in changes) {
         updateSpeedButtonState(changes.playbackSpeed.newValue);
+        updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, changes.playbackSpeed.newValue);
+      }
+      if ('smartSpeedEnabled' in changes) {
+        isSmartSpeedEnabled = Boolean(changes.smartSpeedEnabled.newValue);
+        if (toggleSmartSpeed) toggleSmartSpeed.checked = isSmartSpeedEnabled;
+        updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, null);
       }
       if ('lockedQuality' in changes && selectQuality) {
         selectQuality.value = changes.lockedQuality.newValue;
@@ -470,15 +529,26 @@ document.addEventListener('DOMContentLoaded', () => {
               toggleMusicMode.checked = msg.isMusicMode;
             }
 
-            // 同步播放速度
+            // 同步智慧自動調速與歌曲辨識狀態
+            if (msg.smartSpeedEnabled !== undefined) {
+              isSmartSpeedEnabled = Boolean(msg.smartSpeedEnabled);
+              if (toggleSmartSpeed) toggleSmartSpeed.checked = isSmartSpeedEnabled;
+            }
+            if (msg.isMusicDetected !== undefined) {
+              currentVideoIsMusic = Boolean(msg.isMusicDetected);
+            }
+
+            // 同步播放速度與狀態膠囊
             if (msg.playbackSpeed !== undefined) {
               updateSpeedButtonState(msg.playbackSpeed);
             }
+            updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, msg.playbackSpeed);
 
             // 同步鎖定畫質
             if (msg.lockedQuality !== undefined && selectQuality && selectQuality.value !== msg.lockedQuality) {
               selectQuality.value = msg.lockedQuality;
             }
+
 
             // 即時動態狀態膠囊
             if (msg.isPlaying) {
