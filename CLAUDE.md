@@ -3,12 +3,14 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.8.4 (全域例外護盾・重載孤兒實例自我銷毀・DOM 零拋錯防護加固版)**
+* 當前版本：**v1.8.5 (全域護盾 URL 修正・MutationObserver Debounce・音樂模式分頁獨立・白名單自動隱藏畫面)**
 * 核心運作原則：
-  1. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4 核心加固)**：
-     - **孤兒實例自我銷毀機制 (Anti-Orphan Teardown)**：定時器與 Watchdog 均主動檢查 `isExtensionValid()`，當擴充套件重新載入或上下文失效時，立即自我清除所有 `setInterval` 並斷開 `MutationObserver`，杜絕任何未刷新分頁產生的殭屍任務拋錯。
-     - **全域例外攔截護盾 (Global Error Shield)**：監聽 `window.addEventListener('error')` 與 `unhandledrejection`，自動攔截內部潛在例外並執行 `preventDefault()`，確保 Chrome 擴充功能錯誤記錄器維持 0 報錯。
-     - **安全 DOM 注入與脫鉤保護**：全面採用 `referenceNode.parentNode.insertBefore` 與 `isConnected` 檢測，即使 YouTube 播放器組件動態脫鉤或銷毀，外層全量包裹 `try-catch` 容錯，徹底杜絕任何未捕獲例外。
+  1. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4~v1.8.5 多層加固)**：
+     - **版本化 LOADED 旗標**：改用 `__YT_VOLUME_NORMALIZER_1_8_5__` 版本化旗標，確保舊版殭屍腳本不阻擋新版載入，主控台輸出版本確認標識。
+     - **全域護盾 URL 匹配修正 (v1.8.5)**：`event.filename` 匹配改為 `chrome-extension://`，確保所有來自擴充功能的錯誤都被正確攔截（之前只匹配文件名字串，導致 Chrome 實際 URL 格式不符）。
+     - **MutationObserver Debounce 節流 (v1.8.5)**：YouTube SPA 換頁時 DOM 劇烈變動，加入 300ms debounce，防止爆發大量競態 `insertBefore` 調用。
+     - **孤兒實例自我銷毀機制 (Anti-Orphan Teardown)**：定時器與 Watchdog 均主動檢查 `isExtensionValid()`，擴充套件重新載入時立即清除所有 `setInterval` 並斷開 `MutationObserver`。
+     - **安全 DOM 注入與脫鉤保護**：全面採用 `referenceNode.parentNode.insertBefore` 與 `isConnected` 檢測，外層全量包裹 `try-catch` 容錯。
   2. **太小聲的影片**：自動平滑調高（安全上限 +12 dB），拯救微弱錄音，同時杜絕底噪放大。
   3. **太大聲的影片或廣告**：自動即刻調低（最高 -18 dB），防止突發爆音驚嚇。
   4. **目標音量範圍**：所有影片播放時，輸出音量嚴格維持在使用者在彈出視窗設定的音量範圍內（50% 基準點）。
@@ -32,10 +34,11 @@
      - **特定歌單自動隨機**：支援輸入播放清單 ID（純 ID 或完整 YouTube 網址智慧解析），持久化儲存於 `chrome.storage.local`。
      - **遇白名單清單自動啟動**：載入或換片至白名單內的播放清單時，**自動開啟真隨機播放**；離開白名單清單時**自動還原關閉**，保護教學或連貫劇集體驗。
      - **主介面一鍵星號快捷**：在 YouTube 播放清單時，直接提供 `[⭐自動隨機]` / `[★已設自動隨機 (移除)]` 一鍵切換，無需手動複製 ID。
-  9. **純聽音樂模式 (Music Mode 畫面遮擋與省電防中斷，v1.8.1 加固)**：
-     - **全域 CSS 物理級壓制**：注入 `html.yt-music-mode-active` 與 `#movie_player.yt-music-mode-active` 樣式規則，直接強制 `opacity: 0 !important; visibility: hidden !important;`，徹底隱藏影片、字幕與浮動資訊卡，絕不漏出畫面。
+   9. **純聽音樂模式 (Music Mode 畫面遮擋與省電防中斷，v1.8.5 加固)**：
+     - **分頁獨立狀態 (Per-Tab Isolation, v1.8.5)**：音樂模式改為純分頁記憶體狀態，不再寫入 `chrome.storage.local`，切換僅對當前分頁生效，完全不影響其他分頁，每個分頁獨立從 false 開始。
+     - **白名單自動啟用 (v1.8.5)**：進入白名單播放清單時，除了自動開啟真隨機，也自動開啟音樂模式（隱藏畫面）；離開白名單清單或使用者手動切換後，旗標正確還原。
+     - **全域 CSS 物理級壓制**：注入 `html.yt-music-mode-active` 與 `#movie_player.yt-music-mode-active` 樣式規則，直接強制 `opacity: 0 !important; visibility: hidden !important;`，徹底隱藏影片、字幕與浮動資訊卡。
      - **高層級沉浸遮罩 (`z-index: 58 !important`)**：位於底欄控制列 (`z-index: 60`) 之下、所有畫面與字幕之上，兼顧沉浸感與底欄操控性。
-     - **即時通訊呼叫**：修正訊息接收端立即觸發 `applyMusicMode`，杜絕任何畫面未同步切換之問題。
      - **144p 省電降頻節流**：開啟遮罩時自動將影片解析度降至 `small` (144p)，大幅節省 85% GPU 解碼運算與網路頻寬；關閉時自動還原鎖定畫質。
      - **背景防中斷 Watchdog**：自動跳過 YouTube「影片已暫停。要繼續觀看嗎？」確認彈窗，並在純音模式下自動秒跳過廣告。
   10. **零破音與抗底噪防護**：
