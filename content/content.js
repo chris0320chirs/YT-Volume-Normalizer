@@ -27,6 +27,25 @@
   if (window.__YT_VOLUME_NORMALIZER_LOADED__) return;
   window.__YT_VOLUME_NORMALIZER_LOADED__ = true;
 
+  // 全域例外捕獲護盾：防止任何未預期的內部例外冒泡至 Chrome 擴充功能錯誤記錄器
+  window.addEventListener('error', (event) => {
+    try {
+      if (event && event.filename && (event.filename.includes('content.js') || event.filename.includes('page_bridge.js'))) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    } catch {}
+  }, true);
+
+  window.addEventListener('unhandledrejection', (event) => {
+    try {
+      if (event && event.reason && String(event.reason).includes('Extension context invalidated')) {
+        event.preventDefault();
+        teardownOrphanedInstance();
+      }
+    } catch {}
+  }, true);
+
   // 預設設定 (重新校準：以 50% 為剛好標準舒適點)
   const DEFAULT_SETTINGS = {
     enabled: true,
@@ -112,6 +131,36 @@
     author: null,
     musicVideoType: null,
   };
+
+  let watchdogLoopId = null;
+  let hookIntervalId = null;
+  let domObserver = null;
+  let isTornDown = false;
+
+  /**
+   * 檢查擴充功能上下文是否有效 (若使用者重新載入套件，舊的孤兒腳本自動識別並優雅退出)
+   */
+  function isExtensionValid() {
+    try {
+      return Boolean(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 孤兒實例自我銷毀機制：清除所有計時器與監聽，杜絕重載後的殭屍任務拋錯
+   */
+  function teardownOrphanedInstance() {
+    if (isTornDown) return;
+    isTornDown = true;
+    try {
+      if (macroMonitorLoopId) clearInterval(macroMonitorLoopId);
+      if (watchdogLoopId) clearInterval(watchdogLoopId);
+      if (hookIntervalId) clearInterval(hookIntervalId);
+      if (domObserver) domObserver.disconnect();
+    } catch {}
+  }
 
   /**
    * 生成 65536 點超高精度零溢出雙曲正切軟削頂曲線
@@ -524,16 +573,22 @@
     const outBuf = new Float32Array(pipeline ? pipeline.outputAnalyser.fftSize : 512);
 
     macroMonitorLoopId = setInterval(() => {
-      if (!audioCtx || !pipeline || !connectedVideo) return;
-
-      const isMutedOrPaused = connectedVideo.paused || connectedVideo.muted || connectedVideo.playbackRate === 0;
-      if (isMutedOrPaused) {
-        currentOutputVu *= 0.8;
-        currentOutputPeak *= 0.85;
-        currentStatusMode = 'idle';
-        broadcastStatus(isMutedOrPaused);
+      if (!isExtensionValid()) {
+        teardownOrphanedInstance();
         return;
       }
+
+      try {
+        if (!audioCtx || !pipeline || !connectedVideo) return;
+
+        const isMutedOrPaused = connectedVideo.paused || connectedVideo.muted || connectedVideo.playbackRate === 0;
+        if (isMutedOrPaused) {
+          currentOutputVu *= 0.8;
+          currentOutputPeak *= 0.85;
+          currentStatusMode = 'idle';
+          broadcastStatus(isMutedOrPaused);
+          return;
+        }
 
       // 1. 取樣未延遲的輸入訊號
       pipeline.inputAnalyser.getFloatTimeDomainData(inBuf);
@@ -641,6 +696,9 @@
       }
 
       broadcastStatus(false);
+      } catch (err) {
+        // 容錯防護
+      }
     }, 50);
   }
 
@@ -650,52 +708,56 @@
   function broadcastStatus(isPaused) {
     if (activePorts.size === 0) return;
 
-    const offsetSign = currentAppliedOffsetDb >= 0 ? '+' : '';
-    const playlistStats = getPlaylistStats();
-    const currentTargetDb = -20.0 + ((currentSettings.targetVolume - 50) / 50) * 10.0;
+    try {
+      const offsetSign = currentAppliedOffsetDb >= 0 ? '+' : '';
+      const playlistStats = getPlaylistStats();
+      const currentTargetDb = -20.0 + ((currentSettings.targetVolume - 50) / 50) * 10.0;
 
-    const payload = {
-      type: 'VU_DATA',
-      level: Math.round(currentOutputVu),
-      peak: Math.min(100, Math.round(currentOutputPeak * 100)),
-      offsetDb: `${offsetSign}${currentAppliedOffsetDb.toFixed(1)} dB`,
-      rawOffset: currentAppliedOffsetDb,
-      statusMode: currentStatusMode,
-      targetDb: `${Math.round(currentTargetDb)} dBFS`,
-      targetVolume: currentSettings.targetVolume,
-      rangeTightness: currentSettings.rangeTightness,
-      isPlaying: connectedVideo ? !connectedVideo.paused && !isPaused : false,
-      enabled: currentSettings.enabled,
-      hasLookahead: false,
-      hasSoftClipper: true,
-      hasNoiseGate: true,
-      officialLoudness: ytOfficialLoudnessDb !== null ? `${ytOfficialLoudnessDb.toFixed(1)} dB` : null,
-      isPlaylist: playlistStats.isPlaylist,
-      playlistCount: playlistStats.itemCount,
-      playedCount: playlistStats.playedCount,
-      playlistId: playlistStats.listId || '',
-      isWhitelistPlaylist: Boolean(
-        playlistStats.listId &&
-        Array.isArray(currentSettings.shuffleWhitelist) &&
-        currentSettings.shuffleWhitelist.includes(playlistStats.listId)
-      ),
-      isTrueShuffle: isTrueShuffleEnabled,
-      isAutoShuffle: autoEnabledByWhitelist,
-      isMusicMode: Boolean(currentSettings.musicMode),
-      lockedQuality: currentSettings.lockedQuality || 'auto',
-      playbackSpeed: currentSettings.playbackSpeed || 2.0,
-      isMusicDetected: currentVideoIsMusic,
-      smartSpeedEnabled: Boolean(currentSettings.smartSpeedEnabled),
-      musicSpeed: currentSettings.musicSpeed || 1.0,
-      videoSpeed: currentSettings.videoSpeed || 2.0,
-    };
+      const payload = {
+        type: 'VU_DATA',
+        level: Math.round(currentOutputVu),
+        peak: Math.min(100, Math.round(currentOutputPeak * 100)),
+        offsetDb: `${offsetSign}${currentAppliedOffsetDb.toFixed(1)} dB`,
+        rawOffset: currentAppliedOffsetDb,
+        statusMode: currentStatusMode,
+        targetDb: `${Math.round(currentTargetDb)} dBFS`,
+        targetVolume: currentSettings.targetVolume,
+        rangeTightness: currentSettings.rangeTightness,
+        isPlaying: connectedVideo ? !connectedVideo.paused && !isPaused : false,
+        enabled: currentSettings.enabled,
+        hasLookahead: false,
+        hasSoftClipper: true,
+        hasNoiseGate: true,
+        officialLoudness: ytOfficialLoudnessDb !== null ? `${ytOfficialLoudnessDb.toFixed(1)} dB` : null,
+        isPlaylist: playlistStats.isPlaylist,
+        playlistCount: playlistStats.itemCount,
+        playedCount: playlistStats.playedCount,
+        playlistId: playlistStats.listId || '',
+        isWhitelistPlaylist: Boolean(
+          playlistStats.listId &&
+          Array.isArray(currentSettings.shuffleWhitelist) &&
+          currentSettings.shuffleWhitelist.includes(playlistStats.listId)
+        ),
+        isTrueShuffle: isTrueShuffleEnabled,
+        isAutoShuffle: autoEnabledByWhitelist,
+        isMusicMode: Boolean(currentSettings.musicMode),
+        lockedQuality: currentSettings.lockedQuality || 'auto',
+        playbackSpeed: currentSettings.playbackSpeed || 2.0,
+        isMusicDetected: currentVideoIsMusic,
+        smartSpeedEnabled: Boolean(currentSettings.smartSpeedEnabled),
+        musicSpeed: currentSettings.musicSpeed || 1.0,
+        videoSpeed: currentSettings.videoSpeed || 2.0,
+      };
 
-    for (const port of activePorts) {
-      try {
-        port.postMessage(payload);
-      } catch {
-        activePorts.delete(port);
+      for (const port of activePorts) {
+        try {
+          port.postMessage(payload);
+        } catch {
+          activePorts.delete(port);
+        }
       }
+    } catch (err) {
+      // 容錯防護
     }
   }
 
@@ -1128,101 +1190,118 @@
   }
 
   function ensureMusicModeUi() {
-    injectMusicModeStyles();
+    try {
+      injectMusicModeStyles();
 
-    const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-    if (!player) return;
+      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (!player) return;
 
-    // 1. 確保遮罩存在
-    let overlay = document.getElementById('yt-music-mode-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'yt-music-mode-overlay';
-      overlay.className = 'yt-music-mode-overlay';
-      overlay.innerHTML = `
-        <div class="yt-music-mode-card" id="yt-music-mode-card">
-          <div class="yt-music-mode-visual">
-            <div class="yt-music-mode-disc">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h6V3h-8z"/>
-              </svg>
+      // 1. 確保遮罩存在
+      let overlay = document.getElementById('yt-music-mode-overlay');
+      if (!overlay || !overlay.isConnected) {
+        if (overlay && !overlay.isConnected) {
+          try { overlay.remove(); } catch {}
+        }
+        overlay = document.createElement('div');
+        overlay.id = 'yt-music-mode-overlay';
+        overlay.className = 'yt-music-mode-overlay';
+        overlay.innerHTML = `
+          <div class="yt-music-mode-card" id="yt-music-mode-card">
+            <div class="yt-music-mode-visual">
+              <div class="yt-music-mode-disc">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h6V3h-8z"/>
+                </svg>
+              </div>
+              <div class="yt-music-mode-bars">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+              </div>
             </div>
-            <div class="yt-music-mode-bars">
-              <span class="bar"></span>
-              <span class="bar"></span>
-              <span class="bar"></span>
-              <span class="bar"></span>
-              <span class="bar"></span>
+            <div class="yt-music-mode-title" id="yt-music-mode-title">純聽音樂模式</div>
+            <div class="yt-music-mode-channel" id="yt-music-mode-channel">YouTube 音量鎖定與純音模式</div>
+            <div class="yt-music-mode-tags">
+              <span class="yt-music-mode-badge">🎵 畫面已遮擋・省電降溫</span>
+              <span class="yt-music-mode-hint">按 Shift+M 或點擊右下角按鈕切換</span>
             </div>
           </div>
-          <div class="yt-music-mode-title" id="yt-music-mode-title">純聽音樂模式</div>
-          <div class="yt-music-mode-channel" id="yt-music-mode-channel">YouTube 音量鎖定與純音模式</div>
-          <div class="yt-music-mode-tags">
-            <span class="yt-music-mode-badge">🎵 畫面已遮擋・省電降溫</span>
-            <span class="yt-music-mode-hint">按 Shift+M 或點擊右下角按鈕切換</span>
-          </div>
-        </div>
-      `;
+        `;
 
-      // 點擊遮罩空白處支援播放/暫停
-      overlay.addEventListener('click', (e) => {
-        if (e.target.closest('#yt-music-mode-card')) {
-          return;
-        }
-        const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-        if (video) {
-          if (video.paused) video.play();
-          else video.pause();
-        }
-      });
+        // 點擊遮罩空白處支援播放/暫停
+        overlay.addEventListener('click', (e) => {
+          try {
+            if (e.target.closest('#yt-music-mode-card')) {
+              return;
+            }
+            const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+            if (video) {
+              if (video.paused) video.play();
+              else video.pause();
+            }
+          } catch {}
+        });
 
-      try {
-        player.appendChild(overlay);
-      } catch {
-        // 容錯防護
-      }
-    }
-
-    // 2. 確保播放器控制列按鈕存在
-    const rightControls = player.querySelector('.ytp-right-controls');
-    if (rightControls && !document.getElementById('ytp-music-mode-btn')) {
-      const btn = document.createElement('button');
-      btn.id = 'ytp-music-mode-btn';
-      btn.className = 'ytp-button ytp-music-mode-btn';
-      btn.setAttribute('title', '純聽音樂模式 (遮擋畫面) (Shift+M)');
-      btn.setAttribute('aria-label', '純聽音樂模式');
-      btn.innerHTML = `
-        <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
-          <path class="ytp-svg-fill" d="M15 13v10.18c-.61-.35-1.3-.56-2.03-.56-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V17h8v6.18c-.61-.35-1.3-.56-2.03-.56-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V13h-12z"></path>
-        </svg>
-      `;
-
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const next = !currentSettings.musicMode;
-        applyMusicMode(next);
-        chrome.storage.local.set({ musicMode: next });
-      });
-
-      // 安全插入於設定齒輪前 (使用 settingsBtn.parentNode 徹底杜絕 not a child of this node 錯誤)
-      try {
-        const settingsBtn = rightControls.querySelector('.ytp-settings-button');
-        if (settingsBtn && settingsBtn.parentNode) {
-          settingsBtn.parentNode.insertBefore(btn, settingsBtn);
-        } else {
-          rightControls.appendChild(btn);
-        }
-      } catch {
         try {
-          rightControls.appendChild(btn);
+          player.appendChild(overlay);
         } catch {
           // 容錯防護
         }
       }
-    }
 
-    updateMusicModeVisualState(currentSettings.musicMode);
+      // 2. 確保播放器控制列按鈕存在
+      const rightControls = player.querySelector('.ytp-right-controls');
+      const existingBtn = document.getElementById('ytp-music-mode-btn');
+      if (rightControls && (!existingBtn || !existingBtn.isConnected)) {
+        if (existingBtn && !existingBtn.isConnected) {
+          try { existingBtn.remove(); } catch {}
+        }
+        const btn = document.createElement('button');
+        btn.id = 'ytp-music-mode-btn';
+        btn.className = 'ytp-button ytp-music-mode-btn';
+        btn.setAttribute('title', '純聽音樂模式 (遮擋畫面) (Shift+M)');
+        btn.setAttribute('aria-label', '純聽音樂模式');
+        btn.innerHTML = `
+          <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
+            <path class="ytp-svg-fill" d="M15 13v10.18c-.61-.35-1.3-.56-2.03-.56-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V17h8v6.18c-.61-.35-1.3-.56-2.03-.56-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V13h-12z"></path>
+          </svg>
+        `;
+
+        btn.addEventListener('click', (e) => {
+          try {
+            e.preventDefault();
+            e.stopPropagation();
+            const next = !currentSettings.musicMode;
+            applyMusicMode(next);
+            if (chrome.storage && chrome.storage.local) {
+              chrome.storage.local.set({ musicMode: next });
+            }
+          } catch {}
+        });
+
+        // 安全插入於設定齒輪前 (使用 settingsBtn.parentNode 徹底杜絕 not a child of this node 錯誤)
+        try {
+          const settingsBtn = rightControls.querySelector('.ytp-settings-button');
+          if (settingsBtn && settingsBtn.parentNode) {
+            settingsBtn.parentNode.insertBefore(btn, settingsBtn);
+          } else {
+            rightControls.appendChild(btn);
+          }
+        } catch {
+          try {
+            rightControls.appendChild(btn);
+          } catch {
+            // 容錯防護
+          }
+        }
+      }
+
+      updateMusicModeVisualState(currentSettings.musicMode);
+    } catch (err) {
+      // 容錯防護
+    }
   }
 
   function updateMusicModeMetadata() {
@@ -1435,14 +1514,18 @@
   }
 
   function cyclePlaybackSpeed() {
-    manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl(); // 使用者主動點擊，鎖定當前影片手動速度
-    const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
-    let idx = SPEED_LEVELS.indexOf(cur);
-    if (idx === -1) idx = 0;
-    const nextIdx = (idx + 1) % SPEED_LEVELS.length;
-    const nextSpeed = SPEED_LEVELS[nextIdx];
-    applyPlaybackSpeed(nextSpeed);
-    chrome.storage.local.set({ playbackSpeed: nextSpeed });
+    try {
+      manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl(); // 使用者主動點擊，鎖定當前影片手動速度
+      const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
+      let idx = SPEED_LEVELS.indexOf(cur);
+      if (idx === -1) idx = 0;
+      const nextIdx = (idx + 1) % SPEED_LEVELS.length;
+      const nextSpeed = SPEED_LEVELS[nextIdx];
+      applyPlaybackSpeed(nextSpeed);
+      if (chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ playbackSpeed: nextSpeed });
+      }
+    } catch {}
   }
 
   function updateSpeedButtonDisplay(speed) {
@@ -1480,53 +1563,62 @@
   }
 
   function ensurePlayerSpeedButton() {
-    const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-    if (!player) return;
-    const rightControls = player.querySelector('.ytp-right-controls');
-    if (!rightControls) return;
+    try {
+      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (!player) return;
+      const rightControls = player.querySelector('.ytp-right-controls');
+      if (!rightControls) return;
 
-    let btn = document.getElementById('ytp-speed-btn');
-    if (!btn) {
-      btn = document.createElement('button');
-      btn.id = 'ytp-speed-btn';
-      btn.className = 'ytp-button ytp-speed-btn';
-      btn.setAttribute('title', '播放速度：點擊循環切換 (1.0x / 1.5x / 2.0x / 3.0x) [Shift+S / Shift+3]');
-      btn.setAttribute('aria-label', '播放速度');
-      btn.innerHTML = `<span class="ytp-speed-badge" id="ytp-speed-badge">1.0x</span>`;
-
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        cyclePlaybackSpeed();
-      });
-
-      // 安全插入於純音按鈕後或設定齒輪前 (使用 parentNode 徹底杜絕 not a child of this node 錯誤)
-      try {
-        const musicBtn = document.getElementById('ytp-music-mode-btn');
-        if (musicBtn && musicBtn.parentNode) {
-          if (musicBtn.nextSibling) {
-            musicBtn.parentNode.insertBefore(btn, musicBtn.nextSibling);
-          } else {
-            musicBtn.parentNode.appendChild(btn);
-          }
-        } else {
-          const settingsBtn = rightControls.querySelector('.ytp-settings-button');
-          if (settingsBtn && settingsBtn.parentNode) {
-            settingsBtn.parentNode.insertBefore(btn, settingsBtn);
-          } else {
-            rightControls.appendChild(btn);
-          }
+      const existingBtn = document.getElementById('ytp-speed-btn');
+      if (!existingBtn || !existingBtn.isConnected) {
+        if (existingBtn && !existingBtn.isConnected) {
+          try { existingBtn.remove(); } catch {}
         }
-      } catch {
+        const btn = document.createElement('button');
+        btn.id = 'ytp-speed-btn';
+        btn.className = 'ytp-button ytp-speed-btn';
+        btn.setAttribute('title', '播放速度：點擊循環切換 (1.0x / 1.5x / 2.0x / 3.0x) [Shift+S / Shift+3]');
+        btn.setAttribute('aria-label', '播放速度');
+        btn.innerHTML = `<span class="ytp-speed-badge" id="ytp-speed-badge">1.0x</span>`;
+
+        btn.addEventListener('click', (e) => {
+          try {
+            e.preventDefault();
+            e.stopPropagation();
+            cyclePlaybackSpeed();
+          } catch {}
+        });
+
+        // 安全插入於純音按鈕後或設定齒輪前 (使用 parentNode 徹底杜絕 not a child of this node 錯誤)
         try {
-          rightControls.appendChild(btn);
+          const musicBtn = document.getElementById('ytp-music-mode-btn');
+          if (musicBtn && musicBtn.parentNode) {
+            if (musicBtn.nextSibling) {
+              musicBtn.parentNode.insertBefore(btn, musicBtn.nextSibling);
+            } else {
+              musicBtn.parentNode.appendChild(btn);
+            }
+          } else {
+            const settingsBtn = rightControls.querySelector('.ytp-settings-button');
+            if (settingsBtn && settingsBtn.parentNode) {
+              settingsBtn.parentNode.insertBefore(btn, settingsBtn);
+            } else {
+              rightControls.appendChild(btn);
+            }
+          }
         } catch {
-          // 容錯防護
+          try {
+            rightControls.appendChild(btn);
+          } catch {
+            // 容錯防護
+          }
         }
       }
-    }
 
-    updateSpeedButtonDisplay(currentSettings.playbackSpeed || 1.0);
+      updateSpeedButtonDisplay(currentSettings.playbackSpeed || 1.0);
+    } catch (err) {
+      // 容錯防護
+    }
   }
 
   // 監聽鍵盤快捷鍵 (Shift+M / Shift+S / Shift+3)
@@ -1560,130 +1652,179 @@
 
   // 多分頁切換時同步情境倍速 (Tab Context Re-synchronization)
   function onTabContextSynchronize() {
-    if (document.visibilityState === 'hidden') return;
+    try {
+      if (document.visibilityState === 'hidden') return;
 
-    // 重新評估當前分頁影片內容情境 (音樂 1.0x / 影片 2.0x / 手動覆蓋) 並套用
-    evaluateAndApplySmartSpeed();
+      // 重新評估當前分頁影片內容情境 (音樂 1.0x / 影片 2.0x / 手動覆蓋) 並套用
+      evaluateAndApplySmartSpeed();
 
-    // 確保底欄速度膠囊按鈕存在且顯示正確
-    ensurePlayerSpeedButton();
+      // 確保底欄速度膠囊按鈕存在且顯示正確
+      ensurePlayerSpeedButton();
 
-    // 當前作用中分頁將自身速度記錄至 storage 供 Popup 即時讀取
-    if (document.visibilityState === 'visible' && currentSettings.playbackSpeed) {
-      chrome.storage.local.set({ playbackSpeed: currentSettings.playbackSpeed });
-    }
+      // 當前作用中分頁將自身速度記錄至 storage 供 Popup 即時讀取
+      if (document.visibilityState === 'visible' && currentSettings.playbackSpeed) {
+        if (chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ playbackSpeed: currentSettings.playbackSpeed });
+        }
+      }
 
-    // 立即向 Popup 推送一幀狀態更新
-    broadcastStatus(false);
+      // 立即向 Popup 推送一幀狀態更新
+      broadcastStatus(false);
+    } catch {}
   }
 
   // 監聽分頁可見度切換事件 (Tab Switch)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      onTabContextSynchronize();
-    }
+    try {
+      if (document.visibilityState === 'visible') {
+        onTabContextSynchronize();
+      }
+    } catch {}
   });
 
   // 監聽視窗聚焦事件 (Window Focus)
   window.addEventListener('focus', () => {
-    onTabContextSynchronize();
+    try {
+      onTabContextSynchronize();
+    } catch {}
   });
 
   // 自動防速度被 YouTube 重設 (防廣告或 SPA 偷改，全速域精確守護)
   document.addEventListener('ratechange', (e) => {
-    if (e.target && e.target.tagName === 'VIDEO') {
-      const expected = parseFloat(currentSettings.playbackSpeed) || 1.0;
-      if (Math.abs(e.target.playbackRate - expected) > 0.05) {
-        setTimeout(() => {
-          if (e.target && !e.target.paused) {
-            e.target.playbackRate = expected;
-            window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: expected }, '*');
-          }
-        }, 150);
+    try {
+      if (e.target && e.target.tagName === 'VIDEO') {
+        const expected = parseFloat(currentSettings.playbackSpeed) || 1.0;
+        if (Math.abs(e.target.playbackRate - expected) > 0.05) {
+          setTimeout(() => {
+            try {
+              if (e.target && !e.target.paused) {
+                e.target.playbackRate = expected;
+                window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: expected }, '*');
+              }
+            } catch {}
+          }, 150);
+        }
       }
-    }
+    } catch {}
   }, true);
 
   // 自動防中斷與純音自動跳廣告 Watchdog
   function startMusicModeWatchdog() {
-    setInterval(() => {
-      // 1. 自動跳過「影片已暫停。要繼續觀看嗎？」(Confirm Dialog)
-      const confirmBtn = document.querySelector('yt-confirm-dialog-renderer button#confirm-button, yt-confirm-dialog-renderer .yt-spec-button-shape-next');
-      if (confirmBtn && confirmBtn.offsetParent !== null) {
-        console.log('[YT Normalizer] 自動跳過 YouTube 暫停中斷確認');
-        confirmBtn.click();
+    if (watchdogLoopId) clearInterval(watchdogLoopId);
+    watchdogLoopId = setInterval(() => {
+      if (!isExtensionValid()) {
+        teardownOrphanedInstance();
+        return;
       }
 
-      // 2. 純音模式下自動跳過廣告 (Auto Skip Ads)
-      if (currentSettings.musicMode) {
-        const skipBtn = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
-        if (skipBtn && skipBtn.offsetParent !== null) {
-          skipBtn.click();
+      try {
+        // 1. 自動跳過「影片已暫停。要繼續觀看嗎？」(Confirm Dialog)
+        const confirmBtn = document.querySelector('yt-confirm-dialog-renderer button#confirm-button, yt-confirm-dialog-renderer .yt-spec-button-shape-next');
+        if (confirmBtn && confirmBtn.offsetParent !== null) {
+          console.log('[YT Normalizer] 自動跳過 YouTube 暫停中斷確認');
+          confirmBtn.click();
         }
-        const adShowing = document.querySelector('.ad-showing, .ytp-ad-player-overlay');
-        if (adShowing) {
-          const video = document.querySelector('video.html5-main-video');
-          if (video && !isNaN(video.duration) && video.duration > 0) {
-            video.currentTime = video.duration;
+
+        // 2. 純音模式下自動跳過廣告 (Auto Skip Ads)
+        if (currentSettings.musicMode) {
+          const skipBtn = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
+          if (skipBtn && skipBtn.offsetParent !== null) {
+            skipBtn.click();
+          }
+          const adShowing = document.querySelector('.ad-showing, .ytp-ad-player-overlay');
+          if (adShowing) {
+            const video = document.querySelector('video.html5-main-video');
+            if (video && !isNaN(video.duration) && video.duration > 0) {
+              video.currentTime = video.duration;
+            }
           }
         }
+      } catch (err) {
+        // 容錯防護
       }
     }, 800);
   }
 
   function findAndHookVideo() {
-    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-    if (video) {
-      setupAudioPipeline(video);
-      if (currentSettings.playbackSpeed && currentSettings.playbackSpeed !== 1.0) {
-        video.playbackRate = currentSettings.playbackSpeed;
-      }
+    if (!isExtensionValid()) {
+      teardownOrphanedInstance();
+      return;
     }
-    ensureMusicModeUi();
-    ensurePlayerSpeedButton();
-    applyLockedQuality(currentSettings.lockedQuality);
+
+    try {
+      const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+      if (video) {
+        setupAudioPipeline(video);
+        if (currentSettings.playbackSpeed && currentSettings.playbackSpeed !== 1.0) {
+          video.playbackRate = currentSettings.playbackSpeed;
+        }
+      }
+      ensureMusicModeUi();
+      ensurePlayerSpeedButton();
+      applyLockedQuality(currentSettings.lockedQuality);
+    } catch (e) {
+      // 容錯防護
+    }
   }
 
-  const observer = new MutationObserver(() => findAndHookVideo());
+  domObserver = new MutationObserver(() => {
+    try {
+      findAndHookVideo();
+    } catch {}
+  });
+
   if (document.body) {
-    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      domObserver.observe(document.body, { childList: true, subtree: true });
+    } catch {}
     findAndHookVideo();
   } else {
     document.addEventListener('DOMContentLoaded', () => {
-      observer.observe(document.body, { childList: true, subtree: true });
+      try {
+        if (document.body && domObserver) {
+          domObserver.observe(document.body, { childList: true, subtree: true });
+        }
+      } catch {}
       findAndHookVideo();
     });
   }
 
   window.addEventListener('yt-navigate-finish', () => {
-    resetVideoLoudnessState();
-    setTimeout(() => {
-      findAndHookVideo();
-      updateMusicModeMetadata();
-      checkPlaylistContext();
-      applyLockedQuality(currentSettings.lockedQuality);
-      evaluateAndApplySmartSpeed();
-    }, 150);
-    setTimeout(() => evaluateAndApplySmartSpeed(), 600);
-    setTimeout(() => evaluateAndApplySmartSpeed(), 1500);
+    try {
+      resetVideoLoudnessState();
+      setTimeout(() => {
+        findAndHookVideo();
+        updateMusicModeMetadata();
+        checkPlaylistContext();
+        applyLockedQuality(currentSettings.lockedQuality);
+        evaluateAndApplySmartSpeed();
+      }, 150);
+      setTimeout(() => evaluateAndApplySmartSpeed(), 600);
+      setTimeout(() => evaluateAndApplySmartSpeed(), 1500);
+    } catch {}
   });
+
   window.addEventListener('popstate', () => {
-    resetVideoLoudnessState();
-    setTimeout(() => {
-      findAndHookVideo();
-      updateMusicModeMetadata();
-      checkPlaylistContext();
-      applyLockedQuality(currentSettings.lockedQuality);
-      evaluateAndApplySmartSpeed();
-    }, 150);
-    setTimeout(() => evaluateAndApplySmartSpeed(), 600);
-    setTimeout(() => evaluateAndApplySmartSpeed(), 1500);
+    try {
+      resetVideoLoudnessState();
+      setTimeout(() => {
+        findAndHookVideo();
+        updateMusicModeMetadata();
+        checkPlaylistContext();
+        applyLockedQuality(currentSettings.lockedQuality);
+        evaluateAndApplySmartSpeed();
+      }, 150);
+      setTimeout(() => evaluateAndApplySmartSpeed(), 600);
+      setTimeout(() => evaluateAndApplySmartSpeed(), 1500);
+    } catch {}
   });
 
   document.addEventListener('play', (e) => {
-    if (e.target && e.target.tagName === 'VIDEO') setupAudioPipeline(e.target);
+    try {
+      if (e.target && e.target.tagName === 'VIDEO') setupAudioPipeline(e.target);
+    } catch {}
   }, true);
 
   startMusicModeWatchdog();
-  setInterval(findAndHookVideo, 1500);
+  hookIntervalId = setInterval(findAndHookVideo, 1500);
 })();

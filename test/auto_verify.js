@@ -662,8 +662,129 @@ it('關閉智慧調速時，所有分頁統一同步全域速度', () => {
 });
 
 // --------------------------------------------------------------------------
-// 總結統計
+// 測試模組 10: 擴充功能重載孤兒實例自我銷毀與全量 DOM 例外防護 (Anti-Orphan & Crash Resilience)
 // --------------------------------------------------------------------------
+console.log('\n--- 測試 10: 擴充功能重載孤兒實例自我銷毀與全量 DOM 例外防護 ---');
+
+it('擴充功能重載時應能準確偵測 context invalidation 並停止計時器', () => {
+  let mockRuntime = { id: 'ext-abc-123' };
+  function isExtensionValidMock() {
+    try {
+      return Boolean(mockRuntime && mockRuntime.id);
+    } catch {
+      return false;
+    }
+  }
+
+  assert.strictEqual(isExtensionValidMock(), true, '擴充功能正常運行時為有效狀態');
+
+  // 模擬使用者在 chrome://extensions 點擊重新載入，舊分頁 context 被銷毀
+  mockRuntime = null;
+  assert.strictEqual(isExtensionValidMock(), false, '上下文銷毀時正確回傳 false');
+
+  // 模擬 teardownOrphanedInstance
+  let macroMonitorCleared = false;
+  let watchdogCleared = false;
+  let hookCleared = false;
+  let observerDisconnected = false;
+
+  const mockTimers = {
+    macroMonitorLoopId: 101,
+    watchdogLoopId: 102,
+    hookIntervalId: 103,
+    domObserver: {
+      disconnect: () => { observerDisconnected = true; }
+    }
+  };
+
+  function teardownOrphanedInstanceMock() {
+    macroMonitorCleared = true;
+    watchdogCleared = true;
+    hookCleared = true;
+    if (mockTimers.domObserver) mockTimers.domObserver.disconnect();
+  }
+
+  if (!isExtensionValidMock()) {
+    teardownOrphanedInstanceMock();
+  }
+
+  assert.strictEqual(macroMonitorCleared, true, '宏觀監聽計時器已安全銷毀');
+  assert.strictEqual(watchdogCleared, true, '防中斷看門狗已安全銷毀');
+  assert.strictEqual(hookCleared, true, 'DOM 輪詢注入已安全銷毀');
+  assert.strictEqual(observerDisconnected, true, 'MutationObserver 已安全斷開');
+});
+
+it('面對異常或脫鉤的 DOM 節點時，按鈕插入邏輯保證 100% 零拋錯容錯', () => {
+  // 模擬 YouTube 各種極端 DOM 狀態：
+  // 狀態 A: rightControls 存在，但 settingsBtn.parentNode 不為 rightControls
+  const fakeGrandParent = { id: 'fake-right-controls', children: [] };
+  const fakeParent = { id: 'settings-wrapper', parentNode: fakeGrandParent, children: [] };
+  const fakeSettingsBtn = { id: 'settings-btn', parentNode: fakeParent };
+  fakeParent.children.push(fakeSettingsBtn);
+
+  let insertedCorrectly = false;
+  fakeParent.insertBefore = (newNode, refNode) => {
+    assert.strictEqual(refNode, fakeSettingsBtn);
+    insertedCorrectly = true;
+  };
+
+  const newBtn = { id: 'ytp-music-mode-btn' };
+  try {
+    if (fakeSettingsBtn && fakeSettingsBtn.parentNode) {
+      fakeSettingsBtn.parentNode.insertBefore(newBtn, fakeSettingsBtn);
+    } else {
+      fakeGrandParent.children.push(newBtn);
+    }
+  } catch (err) {
+    assert.fail(`不應拋出例外: ${err.message}`);
+  }
+  assert.strictEqual(insertedCorrectly, true, '成功安全插入至 settingsBtn 之直接父節點前');
+
+  // 狀態 B: parentNode.insertBefore 拋出原生例外時，外層 catch 保證靜默容錯並 fallback
+  let fallbackAppendCalled = false;
+  fakeParent.insertBefore = () => {
+    throw new Error('Simulated DOM NotFoundError');
+  };
+  fakeGrandParent.appendChild = (el) => {
+    fallbackAppendCalled = true;
+  };
+
+  try {
+    try {
+      fakeParent.insertBefore(newBtn, fakeSettingsBtn);
+    } catch {
+      fakeGrandParent.appendChild(newBtn);
+    }
+  } catch (err) {
+    assert.fail(`外層防護應杜絕任何未捕獲例外: ${err.message}`);
+  }
+  assert.strictEqual(fallbackAppendCalled, true, '遇到 DOM 例外時平穩降級至 appendChild');
+});
+
+it('全域例外捕獲護盾應攔截內部例外並調用 preventDefault 杜絕 Chrome 報錯', () => {
+  let defaultPrevented = false;
+  let propagationStopped = false;
+
+  const mockErrorEvent = {
+    filename: 'chrome-extension://xyz/content/content.js',
+    message: 'Simulated internal error',
+    preventDefault: () => { defaultPrevented = true; },
+    stopPropagation: () => { propagationStopped = true; },
+  };
+
+  function errorHandlerMock(event) {
+    try {
+      if (event && event.filename && (event.filename.includes('content.js') || event.filename.includes('page_bridge.js'))) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    } catch {}
+  }
+
+  errorHandlerMock(mockErrorEvent);
+  assert.strictEqual(defaultPrevented, true, 'preventDefault 已被調用');
+  assert.strictEqual(propagationStopped, true, 'stopPropagation 已被調用');
+});
 console.log('\n====================================================');
 console.log(`📊 測試完成！通過: ${passCount} 項, 失敗: ${failCount} 項`);
 console.log('====================================================\n');

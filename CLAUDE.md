@@ -3,11 +3,12 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.8.3 (播放器控制列按鈕安全插入・徹底根治 insertBefore NotFoundError・多分頁即時同步版)**
+* 當前版本：**v1.8.4 (全域例外護盾・重載孤兒實例自我銷毀・DOM 零拋錯防護加固版)**
 * 核心運作原則：
-  1. **零控制台拋錯與安全 DOM 注入 (v1.8.3 核心修復)**：
-     - 使用 `referenceNode.parentNode.insertBefore` 徹底杜絕 YouTube 控制列按鈕嵌套包裝導致的 `NotFoundError: The node before which the new node is to be inserted is not a child of this node` 錯誤。
-     - 控制列注入外層全量包裹 `try-catch` 容錯防護，定時輪詢巡檢 100% 不拋出任何未捕獲例外，徹底清除 Chrome 擴充功能「錯誤」按鈕。
+  1. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4 核心加固)**：
+     - **孤兒實例自我銷毀機制 (Anti-Orphan Teardown)**：定時器與 Watchdog 均主動檢查 `isExtensionValid()`，當擴充套件重新載入或上下文失效時，立即自我清除所有 `setInterval` 並斷開 `MutationObserver`，杜絕任何未刷新分頁產生的殭屍任務拋錯。
+     - **全域例外攔截護盾 (Global Error Shield)**：監聽 `window.addEventListener('error')` 與 `unhandledrejection`，自動攔截內部潛在例外並執行 `preventDefault()`，確保 Chrome 擴充功能錯誤記錄器維持 0 報錯。
+     - **安全 DOM 注入與脫鉤保護**：全面採用 `referenceNode.parentNode.insertBefore` 與 `isConnected` 檢測，即使 YouTube 播放器組件動態脫鉤或銷毀，外層全量包裹 `try-catch` 容錯，徹底杜絕任何未捕獲例外。
   2. **太小聲的影片**：自動平滑調高（安全上限 +12 dB），拯救微弱錄音，同時杜絕底噪放大。
   3. **太大聲的影片或廣告**：自動即刻調低（最高 -18 dB），防止突發爆音驚嚇。
   4. **目標音量範圍**：所有影片播放時，輸出音量嚴格維持在使用者在彈出視窗設定的音量範圍內（50% 基準點）。

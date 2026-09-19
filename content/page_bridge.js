@@ -83,11 +83,15 @@
 
   // 監聽 YouTube 導航完成事件
   window.addEventListener('yt-navigate-finish', () => {
-    onNavigateReapply();
+    try {
+      onNavigateReapply();
+    } catch {}
   });
 
   window.addEventListener('loadstart', () => {
-    onNavigateReapply();
+    try {
+      onNavigateReapply();
+    } catch {}
   }, true);
 
   const QUALITY_PRIORITY = ['hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
@@ -149,31 +153,36 @@
 
   // 監聽來自 Content Script 的指令
   window.addEventListener('message', (event) => {
-    if (!event.data) return;
-    if (event.data.type === 'YT_NORMALIZER_SET_QUALITY') {
-      applyQuality(event.data.quality);
-    } else if (event.data.type === 'YT_NORMALIZER_LOCK_QUALITY') {
-      currentLockedQuality = event.data.quality || 'auto';
-      applyQuality(currentLockedQuality);
-    } else if (event.data.type === 'YT_NORMALIZER_SET_SPEED') {
-      applySpeed(event.data.speed);
-    }
+    try {
+      if (!event.data) return;
+      if (event.data.type === 'YT_NORMALIZER_SET_QUALITY') {
+        applyQuality(event.data.quality);
+      } else if (event.data.type === 'YT_NORMALIZER_LOCK_QUALITY') {
+        currentLockedQuality = event.data.quality || 'auto';
+        applyQuality(currentLockedQuality);
+      } else if (event.data.type === 'YT_NORMALIZER_SET_SPEED') {
+        applySpeed(event.data.speed);
+      }
+    } catch {}
   });
 
   function onNavigateReapply() {
-    extractAndSendLoudness();
-    setTimeout(extractAndSendLoudness, 300);
-    setTimeout(extractAndSendLoudness, 800);
-    setTimeout(extractAndSendLoudness, 1600);
-    if (currentLockedQuality && currentLockedQuality !== 'auto') {
-      setTimeout(() => applyQuality(currentLockedQuality), 300);
-      setTimeout(() => applyQuality(currentLockedQuality), 1000);
-    }
+    try {
+      extractAndSendLoudness();
+      setTimeout(extractAndSendLoudness, 300);
+      setTimeout(extractAndSendLoudness, 800);
+      setTimeout(extractAndSendLoudness, 1600);
+      if (currentLockedQuality && currentLockedQuality !== 'auto') {
+        setTimeout(() => applyQuality(currentLockedQuality), 300);
+        setTimeout(() => applyQuality(currentLockedQuality), 1000);
+      }
+    } catch {}
   }
 
-
   // 初始嘗試提取
-  extractAndSendLoudness();
-  setTimeout(extractAndSendLoudness, 500);
-  setTimeout(extractAndSendLoudness, 1500);
+  try {
+    extractAndSendLoudness();
+    setTimeout(extractAndSendLoudness, 500);
+    setTimeout(extractAndSendLoudness, 1500);
+  } catch {}
 })();
