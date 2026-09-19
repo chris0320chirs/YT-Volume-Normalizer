@@ -197,6 +197,17 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.set({ targetVolume: 50, volume: 50, volumeVersion: 2 });
   });
 
+  // 輔助函式：安全發送訊息至作用中 YouTube 分頁 (過濾非 YT 分頁，杜絕通訊錯誤)
+  function sendMsgToActiveTab(message) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs || !tabs[0] || !tabs[0].id) return;
+      const tab = tabs[0];
+      if (tab.url && tab.url.includes('youtube.com')) {
+        chrome.tabs.sendMessage(tab.id, message).catch(() => {});
+      }
+    });
+  }
+
   // 6. 播放速度切換 (1.0x / 1.5x / 2.0x / 3.0x)
   speedButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -204,14 +215,9 @@ document.addEventListener('DOMContentLoaded', () => {
       updateSpeedButtonState(speed);
       updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, speed);
       chrome.storage.local.set({ playbackSpeed: speed });
-
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs[0] && tabs[0].id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            type: 'SET_PLAYBACK_SPEED',
-            speed: speed,
-          }).catch(() => {});
-        }
+      sendMsgToActiveTab({
+        type: 'SET_PLAYBACK_SPEED',
+        speed: speed,
       });
     });
   });
@@ -223,14 +229,9 @@ document.addEventListener('DOMContentLoaded', () => {
       isSmartSpeedEnabled = isChecked;
       chrome.storage.local.set({ smartSpeedEnabled: isChecked });
       updateSmartSpeedBadge(isSmartSpeedEnabled, currentVideoIsMusic, null);
-
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs[0] && tabs[0].id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            type: 'SET_SMART_SPEED_CONFIG',
-            smartSpeedEnabled: isChecked,
-          }).catch(() => {});
-        }
+      sendMsgToActiveTab({
+        type: 'SET_SMART_SPEED_CONFIG',
+        smartSpeedEnabled: isChecked,
       });
     });
   }
@@ -240,14 +241,9 @@ document.addEventListener('DOMContentLoaded', () => {
     selectQuality.addEventListener('change', () => {
       const quality = selectQuality.value;
       chrome.storage.local.set({ lockedQuality: quality });
-
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs[0] && tabs[0].id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            type: 'SET_LOCKED_QUALITY',
-            quality: quality,
-          }).catch(() => {});
-        }
+      sendMsgToActiveTab({
+        type: 'SET_LOCKED_QUALITY',
+        quality: quality,
       });
     });
   }
@@ -256,14 +252,9 @@ document.addEventListener('DOMContentLoaded', () => {
   toggleMusicMode.addEventListener('change', () => {
     const isChecked = toggleMusicMode.checked;
     chrome.storage.local.set({ musicMode: isChecked });
-
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs && tabs[0] && tabs[0].id) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'TOGGLE_MUSIC_MODE',
-          enabled: isChecked,
-        }).catch(() => {});
-      }
+    sendMsgToActiveTab({
+      type: 'TOGGLE_MUSIC_MODE',
+      enabled: isChecked,
     });
   });
 
@@ -273,16 +264,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (chrome.storage && chrome.storage.session) {
       chrome.storage.session.set({ trueShuffle: isChecked });
     }
-
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs && tabs[0] && tabs[0].id) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'TOGGLE_TRUE_SHUFFLE',
-          enabled: isChecked,
-        }).catch(() => {});
-      }
+    sendMsgToActiveTab({
+      type: 'TOGGLE_TRUE_SHUFFLE',
+      enabled: isChecked,
     });
   });
+
 
   // 10. 進階微調展開/收合
   btnToggleAdvanced.addEventListener('click', () => {
