@@ -27,23 +27,24 @@
   if (window.__YT_VOLUME_NORMALIZER_LOADED__) return;
   window.__YT_VOLUME_NORMALIZER_LOADED__ = true;
 
-  // 預設設定
+  // 預設設定 (重新校準：以 50% 為剛好標準舒適點)
   const DEFAULT_SETTINGS = {
     enabled: true,
-    targetVolume: 100,        // 目標固定音量：0% ~ 150% (100% 標稱標準推薦)
+    targetVolume: 50,         // 目標固定音量：0% ~ 100% (50% 為剛好標準推薦)
     rangeTightness: 'strict', // 預設嚴格鎖定
     mode: 'standard',         // 'standard' (日常平衡) | 'vocal' (人聲強化) | 'music' (音樂原味)
+    volumeVersion: 2,         // 版本升級標記，自動將舊版數值平滑遷移至 50%
   };
 
-  // 廣播級等化風格與壓縮器矩陣 (經聲學抗破音抗失真最佳化)
+  // 廣播級等化風格與壓縮器矩陣 (以 50% 為剛剛好的舒適聆聽基準)
   const LEVELER_CONFIGS = {
     standard: {
       threshold: -24.0,       // dBFS (最佳工作點)
-      ratio: 10.0,            // 10:1 廣播平平整比，保留良好質感且不再互調失真
+      ratio: 10.0,            // 10:1 廣播平整比，保留良好質感且不再互調失真
       knee: 18.0,             // 18dB 寬膝平滑過渡
       attack: 0.008,          // 8ms 瞬態平滑，杜絕低頻破音
       release: 0.38,          // 380ms 自然平滑釋放，杜絕喘息與底噪抽吸
-      baseMakeupGainDb: 6.0,  // 基礎化妝增益，保留充足 Headroom 防破音
+      baseMakeupGainDb: -1.5, // 50% 時的標準化妝增益 (剛好舒適)
     },
     vocal: {
       threshold: -27.0,       // 更深捕獲微弱對話
@@ -51,7 +52,7 @@
       knee: 16.0,
       attack: 0.006,
       release: 0.32,
-      baseMakeupGainDb: 7.5,
+      baseMakeupGainDb: -0.5, // 50% 時的人聲強化化妝增益
     },
     music: {
       threshold: -20.0,
@@ -59,7 +60,7 @@
       knee: 20.0,
       attack: 0.015,
       release: 0.45,
-      baseMakeupGainDb: 4.5,
+      baseMakeupGainDb: -3.0, // 50% 時的音樂原味化妝增益
     },
   };
 
@@ -115,10 +116,15 @@
     return curve;
   }
 
-  // 1. 初始化讀取 Local 設定
+  // 1. 初始化讀取 Local 設定 (含 v2 50% 基準平滑遷移)
   chrome.storage.local.get(DEFAULT_SETTINGS, (stored) => {
-    if (stored.volume !== undefined && stored.targetVolume === undefined) {
-      stored.targetVolume = Math.min(150, Math.max(0, stored.volume));
+    // 平滑遷移：若使用者的設定為舊版（例如 100% 或舊版拉到極低值 6%），自動遷移至新版標準 50%
+    if (!stored.volumeVersion || stored.volumeVersion < 2) {
+      stored.targetVolume = 50;
+      stored.volumeVersion = 2;
+      chrome.storage.local.set({ targetVolume: 50, volume: 50, volumeVersion: 2 });
+    } else if (stored.volume !== undefined && stored.targetVolume === undefined) {
+      stored.targetVolume = Math.min(100, Math.max(0, stored.volume));
     }
     currentSettings = { ...DEFAULT_SETTINGS, ...stored };
     updateAudioParameters();
@@ -139,7 +145,7 @@
         if (k in currentSettings) {
           currentSettings[k] = v.newValue;
         } else if (k === 'volume') {
-          currentSettings.targetVolume = Math.min(150, Math.max(0, v.newValue));
+          currentSettings.targetVolume = Math.min(100, Math.max(0, v.newValue));
         }
       }
       updateAudioParameters();
@@ -295,12 +301,12 @@
       effectiveRatio = Math.min(14.0, cfg.ratio * 1.25);
       effectiveThreshold = cfg.threshold - 2.0;
       effectiveKnee = Math.max(12.0, cfg.knee - 4.0);
-      effectiveBaseMakeup += 1.5;
+      effectiveBaseMakeup += 0.5;
     } else if (currentSettings.rangeTightness === 'wide') {
       effectiveRatio = Math.max(4.0, cfg.ratio * 0.65);
       effectiveThreshold = cfg.threshold + 3.0;
       effectiveKnee = cfg.knee + 4.0;
-      effectiveBaseMakeup -= 1.5;
+      effectiveBaseMakeup -= 0.5;
     }
 
     pipeline.levelerCompressor.threshold.setValueAtTime(effectiveThreshold, now);
@@ -310,13 +316,21 @@
     pipeline.levelerCompressor.release.setValueAtTime(cfg.release, now);
 
     // 3. 使用者目標耳感化妝增益 (Target Makeup Gain)
-    // 預設 100% 音量為標準 -14 ~ -16 LUFS 輸出，保留充裕 Headroom 防止破音
-    const userFactor = currentSettings.targetVolume / 100; // 0.0 ~ 1.5
-    if (currentSettings.targetVolume === 0) {
+    // 經全新校準：以 50% 為剛剛好的舒適聆聽基準 (0 dB Delta)
+    // 50% ~ 100%: 向上平滑增益 +14 dB，充裕微調弱音
+    // 0% ~ 50%: 向下平滑減弱至 -26 dB，0% 為靜音
+    const v = Math.min(100, Math.max(0, currentSettings.targetVolume));
+    if (v === 0) {
       pipeline.targetMakeupGain.gain.setTargetAtTime(0.0, now, 0.02);
     } else {
-      const totalMakeupDb = effectiveBaseMakeup + (userFactor - 1.0) * 10.0;
-      const linearMakeupGain = Math.max(0.001, Math.pow(10, totalMakeupDb / 20));
+      let deltaDb = 0;
+      if (v >= 50) {
+        deltaDb = (v - 50) * (14.0 / 50); // 50%->0dB, 75%->+7dB, 100%->+14dB
+      } else {
+        deltaDb = (v - 50) * (26.0 / 50); // 50%->0dB, 25%->-13dB, 10%->-20.8dB, 1%->-25.5dB
+      }
+      const totalMakeupDb = effectiveBaseMakeup + deltaDb;
+      const linearMakeupGain = Math.max(0.0001, Math.pow(10, totalMakeupDb / 20));
       pipeline.targetMakeupGain.gain.setTargetAtTime(linearMakeupGain, now, 0.02);
     }
   }
@@ -548,7 +562,7 @@
 
     const offsetSign = currentAppliedOffsetDb >= 0 ? '+' : '';
     const playlistStats = getPlaylistStats();
-    const currentTargetDb = -20.0 + ((currentSettings.targetVolume - 100) / 50) * 8.0;
+    const currentTargetDb = -20.0 + ((currentSettings.targetVolume - 50) / 50) * 10.0;
 
     const payload = {
       type: 'VU_DATA',

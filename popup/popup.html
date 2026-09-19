@@ -39,21 +39,22 @@
       <div class="section-header">
         <span class="section-label">設定目標固定音量</span>
         <div class="volume-badge-group">
-          <span class="volume-badge" id="target-val-display">100%</span>
-          <button type="button" class="btn-reset" id="btn-reset-target" title="重設為預設推薦音量 100%">重設</button>
+          <span class="volume-badge" id="target-val-display">50%</span>
+          <button type="button" class="btn-reset" id="btn-reset-target" title="重設為預設推薦音量 50%">重設</button>
         </div>
       </div>
 
       <div class="slider-wrapper">
-        <input type="range" id="target-slider" min="0" max="150" step="1" value="100">
+        <input type="range" id="target-slider" min="0" max="100" step="1" value="50">
         <div class="slider-ticks">
-          <span>0% (微弱)</span>
-          <span class="tick-mid">50% (安靜)</span>
-          <span class="tick-rec">100% (標準推薦)</span>
-          <span>150% (強勁)</span>
+          <span>0% (靜音)</span>
+          <span class="tick-mid">25% (安靜)</span>
+          <span class="tick-rec">50% (剛好・推薦)</span>
+          <span class="tick-mid">75% (偏大)</span>
+          <span>100% (強勁)</span>
         </div>
       </div>
-      <p class="helper-text">太小的影片會自動調高、太吵的影片會自動調低，固定落在您設定的音量範圍內。</p>
+      <p class="helper-text">以 50% 為剛剛好的舒適基準，太小聲自動調高、太大聲自動調低，可自由上下微調。</p>
     </section>
 
     <!-- 即時自動調節狀態卡片 (太小自動調高 / 在範圍內 / 太大自動調低) -->

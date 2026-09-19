@@ -8,9 +8,10 @@
 document.addEventListener('DOMContentLoaded', () => {
   const DEFAULT_LOCAL_SETTINGS = {
     enabled: true,
-    targetVolume: 100,
+    targetVolume: 50,
     rangeTightness: 'strict',
     mode: 'standard',
+    volumeVersion: 2,
   };
 
   // DOM 元素引用
@@ -42,9 +43,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let vuPort = null;
 
-  // 1. 初始化讀取 Local 設定 (音量等化)
+  // 1. 初始化讀取 Local 設定 (音量等化，含 v2 50% 基準平滑遷移)
   chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS, (stored) => {
-    const currentVolume = stored.targetVolume !== undefined ? stored.targetVolume : (stored.volume || 100);
+    if (!stored.volumeVersion || stored.volumeVersion < 2) {
+      stored.targetVolume = 50;
+      stored.volumeVersion = 2;
+      chrome.storage.local.set({ targetVolume: 50, volume: 50, volumeVersion: 2 });
+    }
+    const currentVolume = stored.targetVolume !== undefined ? stored.targetVolume : (stored.volume || 50);
     const settings = {
       ...DEFAULT_LOCAL_SETTINGS,
       ...stored,
@@ -77,12 +83,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateTargetMarkerPosition(volume, tightness) {
-    const norm = Math.min(150, Math.max(0, volume)) / 150;
-    const center = 32 + norm * 50;
+    const norm = Math.min(100, Math.max(0, volume)) / 100;
+    const center = 28 + norm * 56;
 
-    let width = 20;
+    let width = 18;
     if (tightness === 'strict') width = 12;
-    else if (tightness === 'wide') width = 30;
+    else if (tightness === 'wide') width = 28;
 
     const left = Math.max(0, Math.min(100 - width, center - (width / 2)));
     if (vuTargetMarker) {
@@ -130,13 +136,13 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.set({ targetVolume: val, volume: val });
   });
 
-  // 5. 重設為 100%
+  // 5. 重設為 50% (剛剛好標準推薦)
   btnResetTarget.addEventListener('click', () => {
-    targetSlider.value = 100;
-    targetValDisplay.textContent = '100%';
+    targetSlider.value = 50;
+    targetValDisplay.textContent = '50%';
     const tightness = document.querySelector('input[name="range-tightness"]:checked')?.value || 'standard';
-    updateTargetMarkerPosition(100, tightness);
-    chrome.storage.local.set({ targetVolume: 100, volume: 100 });
+    updateTargetMarkerPosition(50, tightness);
+    chrome.storage.local.set({ targetVolume: 50, volume: 50, volumeVersion: 2 });
   });
 
   // 6. 嚴格度切換
