@@ -25,7 +25,7 @@
   'use strict';
 
   // 版本化 LOADED 旗標：每個版本獨立旗標，避免舊版旗標阻擋新版載入
-  const _VERSION = '1.8.6';
+  const _VERSION = '1.8.7';
   const _FLAG = `__YT_VOLUME_NORMALIZER_${_VERSION.replace(/\./g, '_')}__`;
 
   // 若「當前版本」已載入，直接退出（自我去重保護）
@@ -1503,6 +1503,47 @@
         border-color: rgba(168, 85, 247, 0.5);
         color: #e9d5ff;
       }
+
+      /* 倍速快捷鍵即時 HUD 提示框 (對齊 YouTube 原生 Bezel 體驗) */
+      .yt-speed-hud-toast {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.92);
+        background: rgba(18, 18, 18, 0.85);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 14px;
+        padding: 14px 28px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #ffffff;
+        font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        box-shadow: 0 10px 36px rgba(0, 0, 0, 0.65);
+        pointer-events: none !important;
+        z-index: 66 !important;
+        opacity: 0;
+        transition: opacity 0.15s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .yt-speed-hud-toast.visible {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+
+      .yt-speed-hud-icon {
+        font-size: 24px;
+        line-height: 1;
+      }
+
+      .yt-speed-hud-text {
+        font-size: 26px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.5px;
+      }
     `;
     const target = document.head || document.documentElement;
     if (target) {
@@ -1854,6 +1895,53 @@
     }
   }
 
+  let hudToastTimeout = null;
+  function showSpeedHudToast(speed) {
+    try {
+      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (!player) return;
+
+      let toast = document.getElementById('yt-speed-hud-toast');
+      if (!toast || !toast.isConnected) {
+        if (toast && !toast.isConnected) {
+          try { toast.remove(); } catch {}
+        }
+        toast = document.createElement('div');
+        toast.id = 'yt-speed-hud-toast';
+        toast.className = 'yt-speed-hud-toast';
+        player.appendChild(toast);
+      }
+
+      const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+      let icon = '⚡';
+      if (Math.abs(num - 1.0) < 0.01) {
+        icon = currentVideoIsMusic ? '🎵' : '▶';
+      } else if (num < 1.0) {
+        icon = '🐢';
+      }
+
+      toast.innerHTML = `
+        <span class="yt-speed-hud-icon">${icon}</span>
+        <span class="yt-speed-hud-text">${num.toFixed(2)}x</span>
+      `;
+
+      toast.classList.remove('visible');
+      void toast.offsetWidth; // 強制重繪觸發動畫
+      toast.classList.add('visible');
+
+      if (hudToastTimeout) {
+        clearTimeout(hudToastTimeout);
+      }
+      hudToastTimeout = setTimeout(() => {
+        try {
+          if (toast) {
+            toast.classList.remove('visible');
+          }
+        } catch {}
+      }, 750);
+    } catch {}
+  }
+
   function cyclePlaybackSpeed() {
     try {
       manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl(); // 使用者主動點擊，鎖定當前影片手動速度
@@ -2195,7 +2283,7 @@
         const btn = document.createElement('button');
         btn.id = 'ytp-speed-btn';
         btn.className = 'ytp-button ytp-speed-btn';
-        btn.setAttribute('title', '播放速度：點擊選擇倍速 [快捷鍵 Shift+S / Shift+3]');
+        btn.setAttribute('title', '播放速度：點擊選擇倍速 [快捷鍵 < (Shift+,) / > (Shift+.) / Shift+S / Shift+3]');
         btn.setAttribute('aria-label', '播放速度');
         btn.innerHTML = `<span class="ytp-speed-badge" id="ytp-speed-badge">1.0x</span>`;
 
@@ -2239,7 +2327,7 @@
     }
   }
 
-  // 監聽鍵盤快捷鍵 (Shift+M / Shift+S / Shift+3)
+  // 監聽鍵盤快捷鍵 (< / > / Shift+M / Shift+S / Shift+3)
   document.addEventListener('keydown', (e) => {
     if (e.isComposing) return; // 輸入法注音/拼音組字中放行
     const path = e.composedPath ? e.composedPath() : [e.target];
@@ -2257,11 +2345,43 @@
       autoEnabledMusicMode = false; // 使用者手動切換，清除白名單自動接管旗標
       applyMusicMode(next);
     }
+    // < (Shift+,): 減慢播放速度 (每次 -0.25x，下限 0.25x)
+    else if (e.key === '<' || (e.shiftKey && (e.key === ',' || e.code === 'Comma' || e.keyCode === 188))) {
+      e.preventDefault();
+      e.stopPropagation();
+      const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
+      // 確保對齊 0.25 階梯 (例如 1.25 -> 1.0, 1.0 -> 0.75, 若為 1.20 則降為 1.00)
+      const next = Math.max(0.25, Math.round((Math.ceil(Math.round(cur * 100) / 25 - 0.001) - 1) * 25) / 100);
+      manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+      applyPlaybackSpeed(next);
+      if (chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ playbackSpeed: next });
+      }
+      showSpeedHudToast(next);
+      broadcastStatus(false);
+    }
+    // > (Shift+.): 加快播放速度 (每次 +0.25x，上限 3.00x)
+    else if (e.key === '>' || (e.shiftKey && (e.key === '.' || e.code === 'Period' || e.keyCode === 190))) {
+      e.preventDefault();
+      e.stopPropagation();
+      const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
+      // 確保對齊 0.25 階梯 (例如 1.0 -> 1.25, 1.25 -> 1.5, 若為 1.20 則升為 1.25)
+      const next = Math.min(3.00, Math.round((Math.floor(Math.round(cur * 100) / 25 + 0.001) + 1) * 25) / 100);
+      manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+      applyPlaybackSpeed(next);
+      if (chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ playbackSpeed: next });
+      }
+      showSpeedHudToast(next);
+      broadcastStatus(false);
+    }
     // Shift+S: 播放速度循環切換 (1.0x -> 1.5x -> 2.0x -> 3.0x)
     else if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
       e.preventDefault();
       manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
       cyclePlaybackSpeed();
+      showSpeedHudToast(currentSettings.playbackSpeed);
+      broadcastStatus(false);
     }
     // Shift+3: 一鍵直達 3.0x (再次按下還原 1.0x)
     else if (e.shiftKey && (e.key === '3' || e.key === '#')) {
@@ -2270,13 +2390,17 @@
       const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
       const target = cur === 3.0 ? 1.0 : 3.0;
       applyPlaybackSpeed(target);
-      chrome.storage.local.set({ playbackSpeed: target });
+      if (chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ playbackSpeed: target });
+      }
+      showSpeedHudToast(target);
+      broadcastStatus(false);
     }
     // Escape: 關閉倍速選單
     else if (e.key === 'Escape') {
       closeSpeedMenu();
     }
-  });
+  }, true);
 
   // 點擊選單外部自動收合倍速選單
   document.addEventListener('click', (e) => {
@@ -2332,24 +2456,54 @@
     } catch {}
   });
 
-  // 自動防速度被 YouTube 重設 (防廣告或 SPA 偷改，全速域精確守護)
+  // 自動防速度被 YouTube 重設 (防廣告結束偷改回 1.0x，同時相容並同步 YouTube 原生選單手動調整)
+  let lastAdEndTime = 0;
+  let wasAdPlaying = false;
+
   document.addEventListener('ratechange', (e) => {
     try {
       if (e.target && e.target.tagName === 'VIDEO') {
         const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
         const isAdPlaying = player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'));
-        if (isAdPlaying) return; // 廣告播放中不干預加速
+        if (isAdPlaying) {
+          wasAdPlaying = true;
+          return; // 廣告播放中不干預加速
+        }
 
+        if (wasAdPlaying) {
+          wasAdPlaying = false;
+          lastAdEndTime = Date.now();
+        }
+
+        const currentRate = Math.round(e.target.playbackRate * 100) / 100;
         const expected = parseFloat(currentSettings.playbackSpeed) || 1.0;
-        if (Math.abs(e.target.playbackRate - expected) > 0.05) {
-          setTimeout(() => {
-            try {
-              if (e.target && !e.target.paused) {
-                e.target.playbackRate = expected;
-                window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: expected }, '*');
-              }
-            } catch {}
-          }, 150);
+
+        if (Math.abs(currentRate - expected) > 0.05) {
+          // 檢查是否為廣告剛播畢被 YouTube 偷重設回 1.0x (3秒內且 currentRate === 1.0)
+          const isAdRecentlyFinished = (Date.now() - lastAdEndTime < 3000) && Math.abs(currentRate - 1.0) < 0.05 && expected !== 1.0;
+          if (isAdRecentlyFinished) {
+            setTimeout(() => {
+              try {
+                if (e.target && !e.target.paused) {
+                  e.target.playbackRate = expected;
+                  window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: expected }, '*');
+                }
+              } catch {}
+            }, 150);
+          } else {
+            // 使用者透過 YouTube 原生齒輪選單調整倍速，主動同步並尊重手動調整
+            manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+            currentSettings.playbackSpeed = currentRate;
+            updateSpeedButtonDisplay(currentRate);
+            const menu = document.getElementById('ytp-speed-menu');
+            if (menu && menu.style.display !== 'none') {
+              updateSpeedPanelUi(menu, currentRate);
+            }
+            if (chrome.storage && chrome.storage.local) {
+              chrome.storage.local.set({ playbackSpeed: currentRate });
+            }
+            broadcastStatus(false);
+          }
         }
       }
     } catch {}
@@ -2385,11 +2539,16 @@
             const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
             const isAdPlaying = player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'));
             if (isAdPlaying) {
+              wasAdPlaying = true;
               const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
               if (video && !video.paused && video.playbackRate < 8) {
                 video.playbackRate = 16;
               }
             } else {
+              if (wasAdPlaying) {
+                wasAdPlaying = false;
+                lastAdEndTime = Date.now();
+              }
               // 廣告已結束：若影片仍殘留於 16x 快進，立即自動還原至預期倍速
               const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
               if (video && video.playbackRate >= 8) {

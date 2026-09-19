@@ -519,6 +519,37 @@ it('點選倍速膠囊或拖曳滑桿應正確套用倍速並標記手動覆蓋'
   assert.strictEqual(overriddenVid, currentVid, '操作面板應鎖定當前影片手動覆蓋');
 });
 
+it('快捷鍵 < (Shift+,) 與 > (Shift+.) 應以 0.25x 為步長對齊階梯增減且在 [0.25, 3.00] 內安全夾緊', () => {
+  function stepSpeedByShortcut(cur, direction) {
+    if (direction === 'up') {
+      return Math.min(3.00, Math.round((Math.floor(Math.round(cur * 100) / 25 + 0.001) + 1) * 25) / 100);
+    } else {
+      return Math.max(0.25, Math.round((Math.ceil(Math.round(cur * 100) / 25 - 0.001) - 1) * 25) / 100);
+    }
+  }
+
+  // 1.0x 標準階梯升降
+  assert.strictEqual(stepSpeedByShortcut(1.00, 'up'), 1.25);
+  assert.strictEqual(stepSpeedByShortcut(1.25, 'up'), 1.50);
+  assert.strictEqual(stepSpeedByShortcut(1.50, 'up'), 1.75);
+  assert.strictEqual(stepSpeedByShortcut(1.75, 'up'), 2.00);
+  assert.strictEqual(stepSpeedByShortcut(2.00, 'up'), 2.25);
+  assert.strictEqual(stepSpeedByShortcut(2.75, 'up'), 3.00);
+  assert.strictEqual(stepSpeedByShortcut(3.00, 'up'), 3.00, '上限應為 3.00x');
+
+  // 降速階梯
+  assert.strictEqual(stepSpeedByShortcut(1.00, 'down'), 0.75);
+  assert.strictEqual(stepSpeedByShortcut(0.75, 'down'), 0.50);
+  assert.strictEqual(stepSpeedByShortcut(0.50, 'down'), 0.25);
+  assert.strictEqual(stepSpeedByShortcut(0.25, 'down'), 0.25, '下限應為 0.25x');
+
+  // 非 0.25 倍數之滑桿微調數值自動對齊階梯
+  assert.strictEqual(stepSpeedByShortcut(1.20, 'up'), 1.25);
+  assert.strictEqual(stepSpeedByShortcut(1.20, 'down'), 1.00);
+  assert.strictEqual(stepSpeedByShortcut(1.35, 'up'), 1.50);
+  assert.strictEqual(stepSpeedByShortcut(1.35, 'down'), 1.25);
+});
+
 // --------------------------------------------------------------------------
 // 測試模組 8: 純聽音樂模式 (Music Mode) 遮擋與狀態切換邏輯
 // --------------------------------------------------------------------------
@@ -680,22 +711,39 @@ it('Watchdog 遇到真正廣告時，若有跳過按鈕應點擊，若無跳過�
   assert.strictEqual(videoMock.playbackRate, 1.0, '廣告結束後應立即將殘留的 16x 速度還原至正常 1.0x');
 });
 
-it('ratechange 事件監聽器在廣告播放中應跳過干預，防止 16x 與 1x 相互拉扯', () => {
-  let speedSetCount = 0;
-  function handleRateChangeMock({ isAdPlaying, currentRate, expectedRate }) {
+it('ratechange 事件監聽器：廣告中跳過、廣告剛結束還原預期倍速、非廣告且使用者原生調整時主動同步', () => {
+  let restoredCount = 0;
+  let syncedSpeed = null;
+  let manualOverridden = false;
+
+  function handleRateChangeMock({ isAdPlaying, isAdRecentlyFinished, currentRate, expectedRate }) {
     if (isAdPlaying) return; // 廣告中不干預
     if (Math.abs(currentRate - expectedRate) > 0.05) {
-      speedSetCount++;
+      if (isAdRecentlyFinished && Math.abs(currentRate - 1.0) < 0.05 && expectedRate !== 1.0) {
+        restoredCount++; // 廣告後被 YouTube 偷重設回 1.0x，自動還原
+      } else {
+        // 使用者透過 YouTube 原生齒輪選單手動變更，主動同步
+        syncedSpeed = currentRate;
+        manualOverridden = true;
+      }
     }
   }
 
-  // 廣告期間影片以 16x 播放，不應觸發重設
-  handleRateChangeMock({ isAdPlaying: true, currentRate: 16, expectedRate: 1.0 });
-  assert.strictEqual(speedSetCount, 0, '廣告播放期間不應干涉倍速');
+  // 1. 廣告期間影片以 16x 播放，不應觸發重設或同步
+  handleRateChangeMock({ isAdPlaying: true, isAdRecentlyFinished: false, currentRate: 16, expectedRate: 1.0 });
+  assert.strictEqual(restoredCount, 0);
+  assert.strictEqual(syncedSpeed, null);
 
-  // 正常影片期間速度被偷改，應觸發重設校正
-  handleRateChangeMock({ isAdPlaying: false, currentRate: 1.5, expectedRate: 1.0 });
-  assert.strictEqual(speedSetCount, 1, '非廣告期間應正常校正倍速');
+  // 2. 廣告剛結束，YouTube 強制把影片速度壓回 1.0x，而使用者預期為 2.0x ➔ 應自動還原預期速度
+  handleRateChangeMock({ isAdPlaying: false, isAdRecentlyFinished: true, currentRate: 1.0, expectedRate: 2.0 });
+  assert.strictEqual(restoredCount, 1, '廣告結束後應還原預期倍速');
+  assert.strictEqual(syncedSpeed, null);
+
+  // 3. 正常播放期間，使用者從 YouTube 齒輪原生選單點選 1.25x ➔ 應主動同步並標記手動覆蓋，絕不暴力還原
+  handleRateChangeMock({ isAdPlaying: false, isAdRecentlyFinished: false, currentRate: 1.25, expectedRate: 2.0 });
+  assert.strictEqual(restoredCount, 1, '不應誤重設使用者手動調整');
+  assert.strictEqual(syncedSpeed, 1.25, '應同步使用者於原生選單選擇之速度');
+  assert.strictEqual(manualOverridden, true, '應標記手動覆蓋');
 });
 
 it('快捷鍵監聽器應透過 composedPath 穿透 Shadow DOM 並攔截 isComposing', () => {
