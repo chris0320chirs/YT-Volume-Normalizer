@@ -334,6 +334,9 @@
   function onVideoSeeking() {
     macroRmsHistory.length = 0;
     consecutiveQuietFrames = 0;
+    if (pipeline && audioCtx) {
+      pipeline.noiseGateGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.02);
+    }
   }
 
   /**
@@ -386,6 +389,10 @@
           audioCtx.resume().then(() => {
             updateAudioParameters();
           });
+        }
+        consecutiveQuietFrames = 0;
+        if (p && audioCtx) {
+          p.noiseGateGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.02);
         }
       };
       videoElement.addEventListener('play', wakeAudioCtx);
