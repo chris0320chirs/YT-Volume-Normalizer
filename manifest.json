@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YouTube 音量範圍鎖定器與真隨機 (YT Volume & True Shuffle)",
-  "version": "1.3.0",
-  "description": "YouTube 音量範圍鎖定器（25ms前瞻預判、太小自動調高、太大自動調低）與播放清單真隨機播放。",
+  "version": "1.4.0",
+  "description": "YouTube 音量範圍鎖定器（零破音軟限制器、智慧抗底噪門限、太小自動調高、太大自動調低）與播放清單真隨機播放。",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
