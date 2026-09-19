@@ -162,11 +162,15 @@
 
   function onNavigateReapply() {
     extractAndSendLoudness();
+    setTimeout(extractAndSendLoudness, 300);
+    setTimeout(extractAndSendLoudness, 800);
+    setTimeout(extractAndSendLoudness, 1600);
     if (currentLockedQuality && currentLockedQuality !== 'auto') {
       setTimeout(() => applyQuality(currentLockedQuality), 300);
       setTimeout(() => applyQuality(currentLockedQuality), 1000);
     }
   }
+
 
   // 初始嘗試提取
   extractAndSendLoudness();

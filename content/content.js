@@ -706,8 +706,13 @@
 
   function getCurrentVideoIdFromUrl() {
     const params = new URLSearchParams(window.location.search);
-    return params.get('v');
+    const v = params.get('v');
+    if (v) return v;
+    const match = window.location.pathname.match(/\/shorts\/([a-zA-Z0-9_-]+)/);
+    if (match) return match[1];
+    return null;
   }
+
 
   /**
    * 檢查當前清單是否在白名單中，若是則自動啟用真隨機；若離開則自動還原關閉
@@ -1537,6 +1542,8 @@
       applyLockedQuality(currentSettings.lockedQuality);
       evaluateAndApplySmartSpeed();
     }, 150);
+    setTimeout(() => evaluateAndApplySmartSpeed(), 600);
+    setTimeout(() => evaluateAndApplySmartSpeed(), 1500);
   });
   window.addEventListener('popstate', () => {
     resetVideoLoudnessState();
@@ -1547,7 +1554,10 @@
       applyLockedQuality(currentSettings.lockedQuality);
       evaluateAndApplySmartSpeed();
     }, 150);
+    setTimeout(() => evaluateAndApplySmartSpeed(), 600);
+    setTimeout(() => evaluateAndApplySmartSpeed(), 1500);
   });
+
   document.addEventListener('play', (e) => {
     if (e.target && e.target.tagName === 'VIDEO') setupAudioPipeline(e.target);
   }, true);
