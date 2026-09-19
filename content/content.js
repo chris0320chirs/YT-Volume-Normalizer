@@ -36,6 +36,7 @@
     musicMode: false,         // 純聽音樂模式 (遮擋畫面、節能省電、專注好音樂)
     lockedQuality: 'auto',    // 固定畫質: 'auto' | 'hd2160' | 'hd1440' | 'hd1080' | 'hd720'
     playbackSpeed: 1.0,       // 播放速度: 1.0 | 1.5 | 2.0 | 3.0
+    shuffleWhitelist: [],     // 自動隨機白名單播放清單 ID 清單 (例如 ['PLxxxx', 'OLAK5uy_...'])
     volumeVersion: 2,         // 版本升級標記，自動將舊版數值平滑遷移至 50%
   };
 
@@ -92,6 +93,7 @@
      播放清單真隨機 (True Shuffle) 狀態
      ========================================================================== */
   let isTrueShuffleEnabled = false;
+  let autoEnabledByWhitelist = false; // 標記目前是否由白名單自動接管真隨機
   let currentPlaylistId = null;
   const playedVideoIds = new Set();
 
@@ -154,6 +156,10 @@
           if (k === 'musicMode') musicModeChanged = true;
           if (k === 'lockedQuality') applyLockedQuality(v.newValue);
           if (k === 'playbackSpeed') applyPlaybackSpeed(v.newValue);
+          if (k === 'shuffleWhitelist') {
+            currentSettings.shuffleWhitelist = Array.isArray(v.newValue) ? v.newValue : [];
+            checkPlaylistContext();
+          }
         } else if (k === 'volume') {
           currentSettings.targetVolume = Math.min(100, Math.max(0, v.newValue));
         }
@@ -195,6 +201,7 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'TOGGLE_TRUE_SHUFFLE') {
       isTrueShuffleEnabled = Boolean(msg.enabled);
+      autoEnabledByWhitelist = false; // 使用者手動切換，清除自動接管標記
       checkPlaylistContext();
       sendResponse({ status: 'ok', isTrueShuffleEnabled });
     } else if (msg.type === 'TOGGLE_MUSIC_MODE') {
@@ -610,7 +617,14 @@
       isPlaylist: playlistStats.isPlaylist,
       playlistCount: playlistStats.itemCount,
       playedCount: playlistStats.playedCount,
+      playlistId: playlistStats.listId || '',
+      isWhitelistPlaylist: Boolean(
+        playlistStats.listId &&
+        Array.isArray(currentSettings.shuffleWhitelist) &&
+        currentSettings.shuffleWhitelist.includes(playlistStats.listId)
+      ),
       isTrueShuffle: isTrueShuffleEnabled,
+      isAutoShuffle: autoEnabledByWhitelist,
       isMusicMode: Boolean(currentSettings.musicMode),
       lockedQuality: currentSettings.lockedQuality || 'auto',
       playbackSpeed: currentSettings.playbackSpeed || 1.0,
@@ -647,6 +661,35 @@
     return params.get('v');
   }
 
+  /**
+   * 檢查當前清單是否在白名單中，若是則自動啟用真隨機；若離開則自動還原關閉
+   */
+  function checkAndApplyWhitelistShuffle(listId) {
+    const whitelist = Array.isArray(currentSettings.shuffleWhitelist) ? currentSettings.shuffleWhitelist : [];
+    const isWhitelisted = Boolean(listId && whitelist.includes(listId));
+
+    if (isWhitelisted) {
+      if (!isTrueShuffleEnabled) {
+        console.log(`[YT True Shuffle] 🎯 命中白名單播放清單 (${listId})，自動開啟真隨機！`);
+        isTrueShuffleEnabled = true;
+        autoEnabledByWhitelist = true;
+        if (chrome.storage && chrome.storage.session) {
+          chrome.storage.session.set({ trueShuffle: true });
+        }
+      }
+    } else {
+      // 若先前為白名單自動接管，離開白名單清單時自動還原為關閉
+      if (autoEnabledByWhitelist && isTrueShuffleEnabled) {
+        console.log(`[YT True Shuffle] 離開白名單播放清單，自動還原關閉真隨機。`);
+        isTrueShuffleEnabled = false;
+        autoEnabledByWhitelist = false;
+        if (chrome.storage && chrome.storage.session) {
+          chrome.storage.session.set({ trueShuffle: false });
+        }
+      }
+    }
+  }
+
   function checkPlaylistContext() {
     const listId = getPlaylistIdFromUrl();
     if (listId !== currentPlaylistId) {
@@ -655,6 +698,7 @@
       const currentV = getCurrentVideoIdFromUrl();
       if (currentV) playedVideoIds.add(currentV);
     }
+    checkAndApplyWhitelistShuffle(listId);
   }
 
   function getPlaylistElements() {
@@ -1296,6 +1340,7 @@
     setTimeout(() => {
       findAndHookVideo();
       updateMusicModeMetadata();
+      checkPlaylistContext();
       applyLockedQuality(currentSettings.lockedQuality);
       applyPlaybackSpeed(currentSettings.playbackSpeed);
     }, 150);
@@ -1305,6 +1350,7 @@
     setTimeout(() => {
       findAndHookVideo();
       updateMusicModeMetadata();
+      checkPlaylistContext();
       applyLockedQuality(currentSettings.lockedQuality);
       applyPlaybackSpeed(currentSettings.playbackSpeed);
     }, 150);

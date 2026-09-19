@@ -587,6 +587,24 @@ input[type="range"]::-webkit-slider-thumb:active {
   padding: 1px 4px;
   border-radius: 3px;
   border: 1px solid rgba(168, 85, 247, 0.25);
+  transition: all 0.2s ease;
+}
+
+.badge-whitelist {
+  font-size: 9px;
+  font-weight: 600;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.feature-hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
 }
 
 .feature-hint {
@@ -596,6 +614,39 @@ input[type="range"]::-webkit-slider-thumb:active {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+}
+
+.btn-star-whitelist {
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #c084fc;
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.btn-star-whitelist:hover {
+  background: rgba(168, 85, 247, 0.25);
+  color: #f3e8ff;
+  border-color: rgba(168, 85, 247, 0.6);
+}
+
+.btn-star-whitelist.active {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+}
+
+.btn-star-whitelist.active:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
 }
 
 /* --------------------------------------------------------------------------
@@ -700,6 +751,156 @@ input[type="range"]::-webkit-slider-thumb:active {
   color: #ffffff;
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 白名單歌單管理面板 (Whitelist Management) */
+.adv-group-whitelist {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.adv-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.adv-count {
+  font-size: 9.5px;
+  color: var(--text-dim);
+}
+
+.whitelist-input-row {
+  display: flex;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.input-whitelist {
+  flex: 1;
+  min-width: 0;
+  background: rgba(13, 14, 20, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 10.5px;
+  padding: 4px 7px;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.input-whitelist:focus {
+  outline: none;
+  border-color: #a855f7;
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
+}
+
+.input-whitelist::placeholder {
+  color: var(--text-dim);
+  font-size: 9.5px;
+}
+
+.btn-add-whitelist {
+  background: #271c3d;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  color: #d8b4fe;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.btn-add-whitelist:hover {
+  background: #3c2463;
+  color: #ffffff;
+  border-color: rgba(168, 85, 247, 0.8);
+}
+
+.whitelist-quick-bar {
+  margin-top: 4px;
+}
+
+.btn-quick-add {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: rgba(168, 85, 247, 0.08);
+  border: 1px dashed rgba(168, 85, 247, 0.35);
+  border-radius: var(--radius-sm);
+  color: #c084fc;
+  font-size: 9.5px;
+  padding: 3px 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-quick-add:hover {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.65);
+  color: #f3e8ff;
+}
+
+.quick-id-badge {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 8.5px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #e9d5ff;
+}
+
+.whitelist-tags-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-height: 70px;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 9px;
+  color: #e9d5ff;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.tag-chip .btn-del-tag {
+  background: none;
+  border: none;
+  color: #a855f7;
+  font-size: 9px;
+  line-height: 1;
+  padding: 0 1px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all 0.12s ease;
+}
+
+.tag-chip .btn-del-tag:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.whitelist-empty-hint {
+  font-size: 9px;
+  color: var(--text-dim);
+  padding: 2px 3px;
 }
 
 /* --------------------------------------------------------------------------

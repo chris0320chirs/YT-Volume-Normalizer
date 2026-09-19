@@ -130,9 +130,12 @@
         <div class="feature-body">
           <div class="feature-title-row">
             <span class="feature-name">播放清單真隨機</span>
-            <span class="badge-session" title="單次工作階段有效，重啟瀏覽器自動關閉">重開重設</span>
+            <span class="badge-session" id="shuffle-badge" title="單次工作階段有效，重啟瀏覽器自動關閉">重開重設</span>
           </div>
-          <span class="feature-hint" id="shuffle-status-hint">完全打亂・無偏見均勻隨機輪播</span>
+          <div class="feature-hint-row">
+            <span class="feature-hint" id="shuffle-status-hint">完全打亂・無偏見均勻隨機輪播</span>
+            <button type="button" class="btn-star-whitelist" id="btn-star-whitelist" style="display: none;" title="設為自動隨機白名單歌單">⭐自動隨機</button>
+          </div>
         </div>
         <label class="switch switch-sm" title="開啟/關閉播放清單真隨機">
           <input type="checkbox" id="toggle-shuffle">
@@ -184,6 +187,27 @@
               <input type="radio" name="normalizer-mode" value="music">
               <span>音樂原味</span>
             </label>
+          </div>
+        </div>
+
+        <!-- 白名單歌單管理區塊 -->
+        <div class="adv-group adv-group-whitelist">
+          <div class="adv-label-row">
+            <span class="adv-label">自動隨機白名單歌單</span>
+            <span class="adv-count" id="whitelist-count">0 個歌單</span>
+          </div>
+          <div class="whitelist-input-row">
+            <input type="text" id="input-whitelist-id" class="input-whitelist" placeholder="輸入清單 ID (PL...) 或貼上網址" spellcheck="false" autocomplete="off">
+            <button type="button" id="btn-add-whitelist" class="btn-add-whitelist">＋加入</button>
+          </div>
+          <div class="whitelist-quick-bar" id="whitelist-quick-bar" style="display: none;">
+            <button type="button" id="btn-quick-add-current" class="btn-quick-add" title="點擊將當前播放清單快速加入白名單">
+              <span>＋將目前清單加入白名單</span>
+              <span class="quick-id-badge" id="quick-current-id">PL...</span>
+            </button>
+          </div>
+          <div class="whitelist-tags-box" id="whitelist-tags-box">
+            <span class="whitelist-empty-hint" id="whitelist-empty-hint">尚未加入任何歌單（命中加入的清單將自動開啟真隨機）</span>
           </div>
         </div>
       </div>
