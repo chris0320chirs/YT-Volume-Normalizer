@@ -134,6 +134,7 @@
      ========================================================================== */
   let isTrueShuffleEnabled = false;
   let autoEnabledByWhitelist = false; // 標記目前是否由白名單自動接管真隨機
+  let autoEnabledMusicMode = false;   // 標記目前是否由白名單自動開啟音樂模式（隱藏畫面）
   let currentPlaylistId = null;
   const playedVideoIds = new Set();
 
@@ -215,11 +216,15 @@
       stored.targetVolume = Math.min(100, Math.max(0, stored.volume));
     }
     currentSettings = { ...DEFAULT_SETTINGS, ...stored };
+    // 音樂模式為分頁獨立狀態，不從 storage 初始化，每個分頁獨立從 false 開始
+    // 白名單播放清單會在 checkPlaylistContext 時自動偵測並開啟
+    currentSettings.musicMode = false;
     updateAudioParameters();
-    applyMusicMode(Boolean(currentSettings.musicMode));
+    // 不呼叫 applyMusicMode，等 checkPlaylistContext 確認後再決定
     applyLockedQuality(currentSettings.lockedQuality);
     applyPlaybackSpeed(currentSettings.playbackSpeed);
   });
+
 
   // 2. 初始化讀取 Session 設定 (真隨機)
   if (chrome.storage && chrome.storage.session) {
@@ -232,11 +237,12 @@
   // 監聽全域設定變更
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
-      let musicModeChanged = false;
       for (const [k, v] of Object.entries(changes)) {
         if (k in currentSettings) {
+          // 音樂模式 (musicMode) 為分頁獨立狀態，不跨分頁同步
+          // 其他設定仍正常同步
+          if (k === 'musicMode') continue;
           currentSettings[k] = v.newValue;
-          if (k === 'musicMode') musicModeChanged = true;
           if (k === 'lockedQuality') applyLockedQuality(v.newValue);
           if (k === 'playbackSpeed') {
             // 關鍵防護：僅在關閉智慧調速（使用全域固定速度）時，才跨分頁同步套用
@@ -257,9 +263,6 @@
         }
       }
       updateAudioParameters();
-      if (musicModeChanged) {
-        applyMusicMode(Boolean(currentSettings.musicMode));
-      }
     } else if (area === 'session') {
       if ('trueShuffle' in changes) {
         isTrueShuffleEnabled = Boolean(changes.trueShuffle.newValue);
@@ -267,6 +270,7 @@
       }
     }
   });
+
 
   // 接收 page_bridge.js 官方 Content Loudness 與影片元數據
   window.addEventListener('message', (event) => {
@@ -307,9 +311,9 @@
       sendResponse({ status: 'ok', isTrueShuffleEnabled });
     } else if (msg.type === 'TOGGLE_MUSIC_MODE') {
       const isEnabled = Boolean(msg.enabled);
-      currentSettings.musicMode = isEnabled;
-      chrome.storage.local.set({ musicMode: isEnabled });
+      autoEnabledMusicMode = false; // 使用者手動操作，清除白名單自動接管旗標
       applyMusicMode(isEnabled);
+      // 音樂模式為分頁獨立狀態，不寫入 storage，不影響其他分頁
       sendResponse({ status: 'ok', musicMode: isEnabled });
     } else if (msg.type === 'SET_LOCKED_QUALITY') {
       currentSettings.lockedQuality = msg.quality || 'auto';
@@ -807,13 +811,16 @@
 
 
   /**
-   * 檢查當前清單是否在白名單中，若是則自動啟用真隨機；若離開則自動還原關閉
+   * 檢查當前清單是否在白名單中
+   * - 命中白名單：自動開啟真隨機 + 自動開啟音樂模式（隱藏畫面，預設 1.0x）
+   * - 離開白名單：自動還原關閉（僅限自動開啟的部分，使用者手動操作不受影響）
    */
   function checkAndApplyWhitelistShuffle(listId) {
     const whitelist = Array.isArray(currentSettings.shuffleWhitelist) ? currentSettings.shuffleWhitelist : [];
     const isWhitelisted = Boolean(listId && whitelist.includes(listId));
 
     if (isWhitelisted) {
+      // 自動開啟真隨機
       if (!isTrueShuffleEnabled) {
         console.log(`[YT True Shuffle] 🎯 命中白名單播放清單 (${listId})，自動開啟真隨機！`);
         isTrueShuffleEnabled = true;
@@ -822,8 +829,14 @@
           chrome.storage.session.set({ trueShuffle: true });
         }
       }
+      // 自動開啟音樂模式（隱藏畫面）：若尚未開啟（且非使用者手動關閉後）
+      if (!currentSettings.musicMode) {
+        console.log(`[YT Music Mode] 🎵 命中白名單播放清單 (${listId})，自動開啟音樂模式！`);
+        autoEnabledMusicMode = true;
+        applyMusicMode(true);
+      }
     } else {
-      // 若先前為白名單自動接管，離開白名單清單時自動還原為關閉
+      // 離開白名單清單：還原自動開啟的真隨機
       if (autoEnabledByWhitelist && isTrueShuffleEnabled) {
         console.log(`[YT True Shuffle] 離開白名單播放清單，自動還原關閉真隨機。`);
         isTrueShuffleEnabled = false;
@@ -832,8 +845,15 @@
           chrome.storage.session.set({ trueShuffle: false });
         }
       }
+      // 離開白名單清單：還原自動開啟的音樂模式
+      if (autoEnabledMusicMode && currentSettings.musicMode) {
+        console.log(`[YT Music Mode] 離開白名單播放清單，自動還原關閉音樂模式。`);
+        autoEnabledMusicMode = false;
+        applyMusicMode(false);
+      }
     }
   }
+
 
   function checkPlaylistContext() {
     const listId = getPlaylistIdFromUrl();
@@ -1296,10 +1316,10 @@
             e.preventDefault();
             e.stopPropagation();
             const next = !currentSettings.musicMode;
+            // 使用者手動切換，清除白名單自動接管旗標
+            autoEnabledMusicMode = false;
             applyMusicMode(next);
-            if (chrome.storage && chrome.storage.local) {
-              chrome.storage.local.set({ musicMode: next });
-            }
+            // 音樂模式為分頁獨立狀態，不寫入 storage，不影響其他分頁
           } catch {}
         });
 
@@ -1648,12 +1668,12 @@
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
     
-    // Shift+M: 純聽音樂模式切換
+    // Shift+M: 純聽音樂模式切換（分頁獨立，不寫 storage）
     if (e.shiftKey && (e.key === 'M' || e.key === 'm')) {
       e.preventDefault();
       const next = !currentSettings.musicMode;
+      autoEnabledMusicMode = false; // 使用者手動切換，清除白名單自動接管旗標
       applyMusicMode(next);
-      chrome.storage.local.set({ musicMode: next });
     }
     // Shift+S: 播放速度循環切換 (1.0x -> 1.5x -> 2.0x -> 3.0x)
     else if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
