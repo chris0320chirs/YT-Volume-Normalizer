@@ -25,7 +25,7 @@
   'use strict';
 
   // 版本化 LOADED 旗標：每個版本獨立旗標，避免舊版旗標阻擋新版載入
-  const _VERSION = '1.8.7';
+  const _VERSION = '1.8.8';
   const _FLAG = `__YT_VOLUME_NORMALIZER_${_VERSION.replace(/\./g, '_')}__`;
 
   // 若「當前版本」已載入，直接退出（自我去重保護）
@@ -1230,6 +1230,12 @@
         100% { box-shadow: 0 0 12px rgba(255, 0, 51, 0.8); }
       }
 
+      .ytp-speed-btn.speed-slow .ytp-speed-badge {
+        color: #fbbf24;
+        background: rgba(251, 191, 36, 0.2);
+        border: 1px solid rgba(251, 191, 36, 0.35);
+      }
+
       /* 播放器速度彈出面板 (Modern Flagship Speed Panel) */
       .ytp-speed-menu {
         position: absolute;
@@ -1895,6 +1901,20 @@
     }
   }
 
+  /**
+   * 格式化倍速文字：
+   * 若為 1.0, 1.5, 2.0, 3.0 等只有一位小數或整數，維持 1 位小數 (如 1.0, 2.0)
+   * 若為 1.75, 1.25, 0.75, 2.25 等兩位小數，完整精確顯示 2 位小數 (如 1.75, 1.25)
+   * 徹底杜絕 1.75x 被四捨五入成 1.8x 導致與 HUD/面板不一致的問題
+   */
+  function formatSpeedText(speed) {
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+    if (Math.abs(Math.round(num * 10) - num * 10) < 1e-5) {
+      return num.toFixed(1);
+    }
+    return num.toFixed(2);
+  }
+
   let hudToastTimeout = null;
   function showSpeedHudToast(speed) {
     try {
@@ -1920,9 +1940,10 @@
         icon = '🐢';
       }
 
+      const speedStr = formatSpeedText(num);
       toast.innerHTML = `
         <span class="yt-speed-hud-icon">${icon}</span>
-        <span class="yt-speed-hud-text">${num.toFixed(2)}x</span>
+        <span class="yt-speed-hud-text">${speedStr}x</span>
       `;
 
       toast.classList.remove('visible');
@@ -1966,19 +1987,21 @@
   ];
 
   function getSpeedSubtagText(speed) {
-    if (Math.abs(speed - 1.0) < 0.01) {
-      return currentVideoIsMusic ? '🎵 智慧聽歌 (1.00x 原速)' : '正常 (1.00x)';
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+    const s = formatSpeedText(num);
+    if (Math.abs(num - 1.0) < 0.01) {
+      return currentVideoIsMusic ? `🎵 智慧聽歌 (${s}x 原速)` : `正常 (${s}x)`;
     }
-    if (Math.abs(speed - 2.0) < 0.01) {
-      return !currentVideoIsMusic ? '🎬 智慧看片 (2.00x 倍速)' : '2.00x 倍速';
+    if (Math.abs(num - 2.0) < 0.01) {
+      return !currentVideoIsMusic ? `🎬 智慧看片 (${s}x 倍速)` : `${s}x 倍速`;
     }
-    if (Math.abs(speed - 3.0) < 0.01) {
-      return '⚡ 3.00x 暴衝極速';
+    if (Math.abs(num - 3.0) < 0.01) {
+      return `⚡ ${s}x 暴衝極速`;
     }
-    if (speed > 1.0) {
-      return `${speed.toFixed(2)}x 倍速播放`;
+    if (num > 1.0) {
+      return `${s}x 倍速播放`;
     }
-    return `${speed.toFixed(2)}x 慢速播放`;
+    return `${s}x 慢速播放`;
   }
 
   function updateSliderProgress(slider, val) {
@@ -1994,7 +2017,7 @@
     const heroVal = menu.querySelector('#ytp-speed-hero-val');
     const heroSubtag = menu.querySelector('#ytp-speed-hero-subtag');
     const slider = menu.querySelector('#ytp-speed-slider-input');
-    if (heroVal) heroVal.textContent = `${num.toFixed(2)}x`;
+    if (heroVal) heroVal.textContent = `${formatSpeedText(num)}x`;
     if (heroSubtag) heroSubtag.textContent = getSpeedSubtagText(num);
     if (slider) {
       slider.value = num.toFixed(2);
@@ -2083,7 +2106,7 @@
         <button class="ytp-speed-close-btn" id="ytp-speed-close-action" type="button" title="關閉">✕</button>
       </div>
       <div class="ytp-speed-hero">
-        <div class="ytp-speed-val" id="ytp-speed-hero-val">${currentSpeed.toFixed(2)}x</div>
+        <div class="ytp-speed-val" id="ytp-speed-hero-val">${formatSpeedText(currentSpeed)}x</div>
         <div class="ytp-speed-subtag" id="ytp-speed-hero-subtag">${getSpeedSubtagText(currentSpeed)}</div>
       </div>
       <div class="ytp-speed-stepper-row">
@@ -2237,17 +2260,20 @@
   function updateSpeedButtonDisplay(speed) {
     const badge = document.getElementById('ytp-speed-badge');
     const btn = document.getElementById('ytp-speed-btn');
-    const num = parseFloat(speed) || 1.0;
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+    const speedStr = formatSpeedText(num);
 
     if (badge) {
       if (currentVideoIsMusic) {
-        badge.textContent = `🎵${num.toFixed(1)}x`;
-      } else if (num === 3.0) {
-        badge.textContent = '⚡3.0x';
+        badge.textContent = `🎵${speedStr}x`;
+      } else if (Math.abs(num - 3.0) < 0.01) {
+        badge.textContent = `⚡${speedStr}x`;
       } else if (num > 1.0) {
-        badge.textContent = `⚡${num.toFixed(1)}x`;
+        badge.textContent = `⚡${speedStr}x`;
+      } else if (num < 1.0) {
+        badge.textContent = `🐢${speedStr}x`;
       } else {
-        badge.textContent = `${num.toFixed(1)}x`;
+        badge.textContent = `${speedStr}x`;
       }
     }
 
@@ -2255,15 +2281,18 @@
       btn.className = 'ytp-button ytp-speed-btn';
       if (currentVideoIsMusic) {
         btn.classList.add('speed-music');
-        btn.title = `智慧調速：已識別為音樂歌曲 (${num.toFixed(1)}x 原速) · 點擊選擇倍速`;
-      } else if (num === 3.0) {
+        btn.title = `智慧調速：已識別為音樂歌曲 (${speedStr}x 原速) · 點擊選擇倍速`;
+      } else if (Math.abs(num - 3.0) < 0.01) {
         btn.classList.add('speed-turbo');
-        btn.title = `智慧調速：一般影片 (⚡3.0x 暴衝速) · 點擊選擇倍速`;
+        btn.title = `智慧調速：一般影片 (⚡${speedStr}x 暴衝速) · 點擊選擇倍速`;
       } else if (num > 1.0) {
         btn.classList.add('speed-boosted');
-        btn.title = `智慧調速：一般影片 (${num.toFixed(1)}x 倍速) · 點擊選擇倍速`;
+        btn.title = `智慧調速：一般影片 (${speedStr}x 倍速) · 點擊選擇倍速`;
+      } else if (num < 1.0) {
+        btn.classList.add('speed-slow');
+        btn.title = `智慧調速：一般影片 (🐢${speedStr}x 慢速) · 點擊選擇倍速`;
       } else {
-        btn.title = `智慧調速：一般影片 (1.0x) · 點擊選擇倍速`;
+        btn.title = `智慧調速：一般影片 (${speedStr}x) · 點擊選擇倍速`;
       }
     }
   }

@@ -550,6 +550,84 @@ it('快捷鍵 < (Shift+,) 與 > (Shift+.) 應以 0.25x 為步長對齊階梯增�
   assert.strictEqual(stepSpeedByShortcut(1.35, 'down'), 1.25);
 });
 
+it('倍速文字格式化 formatSpeedText 與 HUD/按鈕徽章一致性 (杜絕 1.75x 誤顯為 1.8x)', () => {
+  function formatSpeedText(speed) {
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+    if (Math.abs(Math.round(num * 10) - num * 10) < 1e-5) {
+      return num.toFixed(1);
+    }
+    return num.toFixed(2);
+  }
+
+  function getBadgeAndHudText(speed, isMusic = false) {
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+    const speedStr = formatSpeedText(num);
+    let badgeText = '';
+    if (isMusic) {
+      badgeText = `🎵${speedStr}x`;
+    } else if (Math.abs(num - 3.0) < 0.01) {
+      badgeText = `⚡${speedStr}x`;
+    } else if (num > 1.0) {
+      badgeText = `⚡${speedStr}x`;
+    } else if (num < 1.0) {
+      badgeText = `🐢${speedStr}x`;
+    } else {
+      badgeText = `${speedStr}x`;
+    }
+    const hudText = `${speedStr}x`;
+    return { badgeText, hudText, speedStr };
+  }
+
+  // 1. 關鍵修復驗證：1.75x 必須精確顯示 1.75x，絕不可四捨五入為 1.8x
+  const r175 = getBadgeAndHudText(1.75);
+  assert.strictEqual(r175.speedStr, '1.75', '1.75x 的字串格式必須為 1.75');
+  assert.strictEqual(r175.hudText, '1.75x', '中間 HUD Toast 必須顯示 1.75x');
+  assert.strictEqual(r175.badgeText, '⚡1.75x', '右下角按鈕徽章必須顯示 ⚡1.75x，與中間完全一致');
+
+  // 2. 1.25x、0.75x、0.25x、2.25x、2.75x 等兩位小數均完整保留
+  const r125 = getBadgeAndHudText(1.25);
+  assert.strictEqual(r125.badgeText, '⚡1.25x');
+  assert.strictEqual(r125.hudText, '1.25x');
+
+  const r075 = getBadgeAndHudText(0.75);
+  assert.strictEqual(r075.badgeText, '🐢0.75x');
+  assert.strictEqual(r075.hudText, '0.75x');
+
+  const r025 = getBadgeAndHudText(0.25);
+  assert.strictEqual(r025.badgeText, '🐢0.25x');
+  assert.strictEqual(r025.hudText, '0.25x');
+
+  const r225 = getBadgeAndHudText(2.25);
+  assert.strictEqual(r225.badgeText, '⚡2.25x');
+  assert.strictEqual(r225.hudText, '2.25x');
+
+  // 3. 整數與一位小數 (1.0, 1.5, 2.0, 3.0) 維持簡潔一致的 1 位小數
+  const r10 = getBadgeAndHudText(1.0);
+  assert.strictEqual(r10.badgeText, '1.0x');
+  assert.strictEqual(r10.hudText, '1.0x');
+
+  const r15 = getBadgeAndHudText(1.5);
+  assert.strictEqual(r15.badgeText, '⚡1.5x');
+  assert.strictEqual(r15.hudText, '1.5x');
+
+  const r20 = getBadgeAndHudText(2.0);
+  assert.strictEqual(r20.badgeText, '⚡2.0x');
+  assert.strictEqual(r20.hudText, '2.0x');
+
+  const r30 = getBadgeAndHudText(3.0);
+  assert.strictEqual(r30.badgeText, '⚡3.0x');
+  assert.strictEqual(r30.hudText, '3.0x');
+
+  // 4. 音樂模式 1.0x
+  const rMusic = getBadgeAndHudText(1.0, true);
+  assert.strictEqual(rMusic.badgeText, '🎵1.0x');
+
+  // 5. 無段滑桿微調值 (如 1.15)
+  const r115 = getBadgeAndHudText(1.15);
+  assert.strictEqual(r115.speedStr, '1.15');
+  assert.strictEqual(r115.badgeText, '⚡1.15x');
+});
+
 // --------------------------------------------------------------------------
 // 測試模組 8: 純聽音樂模式 (Music Mode) 遮擋與狀態切換邏輯
 // --------------------------------------------------------------------------

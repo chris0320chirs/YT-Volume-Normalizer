@@ -3,10 +3,10 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.8.7 (支援 YouTube 原生 < / > (Shift+, / Shift+.) 倍速快捷鍵與即時 HUD 提示・原生選單智慧同步・廣告復原防拉扯)**
+* 當前版本：**v1.8.8 (倍速數值格式化與全域顯示一致性・杜絕 1.75x 誤顯為 1.8x・慢速微光樣式加固)**
 * 核心運作原則：
-  1. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4~v1.8.7 多層加固)**：
-     - **版本化 LOADED 旗標 (v1.8.7)**：改用 `__YT_VOLUME_NORMALIZER_1_8_7__` 版本化旗標，確保舊版殭屍腳本不阻擋新版載入，主控台輸出版本確認標識。
+  1. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4~v1.8.8 多層加固)**：
+     - **版本化 LOADED 旗標 (v1.8.8)**：改用 `__YT_VOLUME_NORMALIZER_1_8_8__` 版本化旗標，確保舊版殭屍腳本不阻擋新版載入，主控台輸出版本確認標識。
      - **全域護盾 URL 匹配修正**：`event.filename` 匹配改為 `chrome-extension://`，確保所有來自擴充功能的錯誤都被正確攔截（防範 Chrome 實際 URL 格式不符）。
      - **MutationObserver Debounce 節流**：YouTube SPA 換頁時 DOM 劇烈變動，加入 300ms debounce，防止爆發大量競態 `insertBefore` 調用。
      - **孤兒實例自我銷毀機制 (Anti-Orphan Teardown)**：定時器與 Watchdog 均主動檢查 `isExtensionValid()`，當擴充套件重新載入或上下文失效時，立即自我清除所有 `setInterval` 並斷開 `MutationObserver`，杜絕任何未刷新分頁產生的殭屍任務拋錯。
@@ -105,6 +105,7 @@
   - [x] 播放器即時 HUD Toast：快捷鍵觸發時於畫面正中秒級彈出半透明磨砂 Bezel 動畫
   - [x] 智能 `ratechange` 事件監聽器：廣告中跳過、廣告剛結束還原預期倍速、原生齒輪選單調整自動同步
   - [x] 控制面板整合 4 顆精簡倍速膠囊按鈕 (`1.0x` / `1.5x` / `2.0x` / `⚡3.0x`)
+  - [x] 全域倍速格式化一致性 (formatSpeedText，v1.8.8)：精確保留兩位小數 (1.75x, 1.25x, 0.75x) 並維持整數/一位小數簡潔性 (1.0x, 2.0x)，徹底杜絕中央 HUD (1.75x) 與右下角按鈕徽章 (誤顯 1.8x) 數值衝突，同步支援慢速 (< 1.0x) 暖黃微光徽章樣式 (`speed-slow`)
 * [x] 智慧歌曲辨識自動調速引擎 (Smart Speed Context Detection，v1.8.0 新增)
   - [x] 8 層級全方位音樂歌曲特徵辨識 (Category: Music, musicVideoType, Topic 頻道, 藝人認證徽章, 說明欄版權資訊, 白名單歌單, 標題強關鍵字)
   - [x] 換片智慧自動調速：音樂歌曲自動切換 1.0x 原速，一般影片自動切換 2.0x 倍速
