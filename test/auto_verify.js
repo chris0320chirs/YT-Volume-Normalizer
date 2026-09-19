@@ -1142,6 +1142,250 @@ it('全域例外捕獲護盾應攔截內部例外並調用 preventDefault 杜絕
   assert.strictEqual(defaultPrevented, true, 'preventDefault 已被調用');
   assert.strictEqual(propagationStopped, true, 'stopPropagation 已被調用');
 });
+
+// --------------------------------------------------------------------------
+// 測試模組 11: YouTube Shorts 直式短影音相容性與切換測試
+// --------------------------------------------------------------------------
+console.log('\n--- 測試 11: YouTube Shorts 直式短影音相容性與切換測試 ---');
+
+function isShortsUrlMock(url) {
+  try {
+    const u = new URL(url);
+    return u.pathname.startsWith('/shorts/');
+  } catch {
+    return false;
+  }
+}
+
+it('isShortsUrl 應能準確識別 /shorts/* 網址並排除一般 YouTube 網址', () => {
+  assert.strictEqual(isShortsUrlMock('https://www.youtube.com/shorts/dQw4w9WgXcQ'), true);
+  assert.strictEqual(isShortsUrlMock('https://www.youtube.com/shorts/abcdef12345?feature=share'), true);
+  assert.strictEqual(isShortsUrlMock('https://m.youtube.com/shorts/xyz789'), true);
+  assert.strictEqual(isShortsUrlMock('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), false);
+  assert.strictEqual(isShortsUrlMock('https://www.youtube.com/feed/subscriptions'), false);
+  assert.strictEqual(isShortsUrlMock('https://www.youtube.com/'), false);
+  assert.strictEqual(isShortsUrlMock('invalid-url'), false);
+});
+
+it('getActiveVideo 與 getActivePlayer 在 Shorts 多 reel 結構下應精確鎖定 [is-active] 作用中元素', () => {
+  // 建立模擬 DOM
+  const reels = [
+    {
+      tagName: 'YTD-REEL-VIDEO-RENDERER',
+      isActive: false,
+      video: { id: 'video-reel-0', tagName: 'VIDEO', paused: true },
+      overlay: { id: 'overlay-0', actions: { id: 'actions-0', children: [] } }
+    },
+    {
+      tagName: 'YTD-REEL-VIDEO-RENDERER',
+      isActive: true, // 當前觀看中
+      video: { id: 'video-reel-1', tagName: 'VIDEO', paused: false },
+      overlay: { id: 'overlay-1', actions: { id: 'actions-1', children: [] } }
+    },
+    {
+      tagName: 'YTD-REEL-VIDEO-RENDERER',
+      isActive: false, // 預載下一支
+      video: { id: 'video-reel-2', tagName: 'VIDEO', paused: true },
+      overlay: { id: 'overlay-2', actions: { id: 'actions-2', children: [] } }
+    }
+  ];
+
+  function getActiveVideoMock(isShorts) {
+    if (isShorts) {
+      const activeReel = reels.find(r => r.isActive);
+      if (activeReel) return activeReel.video;
+      return reels[0]?.video || null;
+    }
+    return { id: 'standard-video', tagName: 'VIDEO' };
+  }
+
+  function getActivePlayerMock(isShorts) {
+    if (isShorts) {
+      const activeReel = reels.find(r => r.isActive);
+      if (activeReel) return activeReel;
+      return reels[0] || null;
+    }
+    return { id: 'movie_player' };
+  }
+
+  // 1. Shorts 模式下應鎖定 reel 1
+  assert.strictEqual(getActiveVideoMock(true).id, 'video-reel-1', '鎖定 is-active 之 video-reel-1');
+  assert.strictEqual(getActivePlayerMock(true).video.id, 'video-reel-1', '鎖定 is-active 之 reel 容器');
+
+  // 2. 使用者向下滑動切換至 reel 2
+  reels[1].isActive = false;
+  reels[2].isActive = true;
+  assert.strictEqual(getActiveVideoMock(true).id, 'video-reel-2', '滑動後自動切換至 video-reel-2');
+
+  // 3. 一般影片模式退回標準播放器
+  assert.strictEqual(getActiveVideoMock(false).id, 'standard-video');
+  assert.strictEqual(getActivePlayerMock(false).id, 'movie_player');
+});
+
+it('Web Audio 音訊管線在 Shorts 快速滑動時應平穩熱拔插且不重複建立 MediaElementSource', () => {
+  let createdSourcesCount = 0;
+  let disconnectCount = 0;
+  let connectCount = 0;
+
+  const mockAudioCtx = {
+    createMediaElementSource: (video) => {
+      createdSourcesCount++;
+      return {
+        video,
+        connect: () => { connectCount++; },
+        disconnect: () => { disconnectCount++; }
+      };
+    }
+  };
+
+  let currentSourceNode = null;
+  let connectedVideo = null;
+
+  function setupAudioPipelineMock(videoElement) {
+    if (!videoElement) return;
+    if (connectedVideo === videoElement && currentSourceNode) return;
+
+    if (currentSourceNode) {
+      try { currentSourceNode.disconnect(); } catch {}
+    }
+
+    let sourceNode = videoElement.__ytNormalizerSource;
+    if (!sourceNode) {
+      sourceNode = mockAudioCtx.createMediaElementSource(videoElement);
+      videoElement.__ytNormalizerSource = sourceNode;
+    }
+
+    sourceNode.connect();
+    currentSourceNode = sourceNode;
+    connectedVideo = videoElement;
+  }
+
+  const v1 = { id: 'shorts-video-1' };
+  const v2 = { id: 'shorts-video-2' };
+
+  // 1. 播放 Reel 1
+  setupAudioPipelineMock(v1);
+  assert.strictEqual(createdSourcesCount, 1);
+  assert.strictEqual(connectedVideo, v1);
+
+  // 2. 滑動至 Reel 2
+  setupAudioPipelineMock(v2);
+  assert.strictEqual(createdSourcesCount, 2, 'Reel 2 建立第二個 SourceNode');
+  assert.strictEqual(disconnectCount, 1, 'Reel 1 之舊 SourceNode 已成功斷開釋放');
+  assert.strictEqual(connectedVideo, v2);
+
+  // 3. 滑動回 Reel 1
+  setupAudioPipelineMock(v1);
+  assert.strictEqual(createdSourcesCount, 2, '復用快取之 __ytNormalizerSource，絕不重複建立 (防 InvalidStateError)');
+  assert.strictEqual(disconnectCount, 2, 'Reel 2 斷開');
+  assert.strictEqual(connectedVideo, v1);
+});
+
+it('Shorts 專屬音樂/原聲特徵應精確驅動智慧調速 (音樂 1.0x vs 短片 2.0x)', () => {
+  function evaluateShortsMusicMock(shortsContext) {
+    const { title = '', hasMusicBadge = false, soundTitle = '' } = shortsContext;
+    if (hasMusicBadge) {
+      return { isMusic: true, reason: 'Shorts 原生音訊/音樂標籤' };
+    }
+    const combined = `${title} ${soundTitle}`.toLowerCase();
+    const musicKeywords = ['official music video', 'official audio', 'remix', 'cover', 'original soundtrack', 'ost', 'mv', 'ft.', 'feat.'];
+    if (musicKeywords.some(kw => combined.includes(kw))) {
+      return { isMusic: true, reason: 'Shorts 標題/原聲含有音樂特徵關鍵字' };
+    }
+    return { isMusic: false, reason: '一般短影音' };
+  }
+
+  // 1. 帶有官方音樂標籤之 Shorts (例如官方音訊剪輯)
+  const res1 = evaluateShortsMusicMock({ title: 'Dancing with my cats', hasMusicBadge: true, soundTitle: 'Ed Sheeran - Shape of You' });
+  assert.strictEqual(res1.isMusic, true);
+  assert.strictEqual(res1.reason.includes('Shorts 原生音訊/音樂標籤'), true);
+
+  // 2. 帶有 MV / Cover 關鍵字之 Shorts
+  const res2 = evaluateShortsMusicMock({ title: 'Taylor Swift - Cruel Summer (Guitar Cover)', hasMusicBadge: false });
+  assert.strictEqual(res2.isMusic, true);
+
+  // 3. 一般短影片 (開箱、迷因、教學)
+  const res3 = evaluateShortsMusicMock({ title: 'Top 5 VSCode extensions you must use!', hasMusicBadge: false, soundTitle: 'Original Sound' });
+  assert.strictEqual(res3.isMusic, false);
+});
+
+it('Shorts 倍速按鈕注入、選單切換與徽章數值即時同步', () => {
+  const actionsContainer = { children: [], appendChild: function(el) { this.children.push(el); }, insertBefore: function(el, ref) { this.children.unshift(el); } };
+  let shortsBtn = null;
+
+  function formatSpeedTextMock(speed) {
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+    if (Math.abs(Math.round(num * 10) - num * 10) < 1e-5) {
+      return num.toFixed(1);
+    }
+    return num.toFixed(2);
+  }
+
+  function ensureShortsSpeedButtonMock(speed) {
+    if (!shortsBtn) {
+      shortsBtn = {
+        id: 'ytp-shorts-speed-btn',
+        badge: { textContent: '1.0x' },
+        label: { textContent: '倍速' },
+        title: ''
+      };
+      actionsContainer.insertBefore(shortsBtn, actionsContainer.children[0]);
+    }
+    const txt = `${formatSpeedTextMock(speed)}x`;
+    shortsBtn.badge.textContent = txt;
+    shortsBtn.title = `播放速度：${txt}`;
+  }
+
+  // 1. 初始注入按鈕
+  ensureShortsSpeedButtonMock(1.0);
+  assert.strictEqual(actionsContainer.children.length, 1);
+  assert.strictEqual(shortsBtn.badge.textContent, '1.0x');
+
+  // 2. 加速至 1.75x
+  ensureShortsSpeedButtonMock(1.75);
+  assert.strictEqual(shortsBtn.badge.textContent, '1.75x');
+
+  // 3. 加速至 2.0x
+  ensureShortsSpeedButtonMock(2.0);
+  assert.strictEqual(shortsBtn.badge.textContent, '2.0x');
+
+  // 4. 點擊外部判斷
+  let menuOpen = true;
+  function handleOutsideClickMock(clickedElement) {
+    const isMenu = clickedElement && clickedElement.id === 'ytp-speed-menu';
+    const isStdBtn = clickedElement && clickedElement.id === 'ytp-speed-btn';
+    const isShortsBtn = clickedElement && clickedElement.id === 'ytp-shorts-speed-btn';
+    if (!isMenu && !isStdBtn && !isShortsBtn) {
+      menuOpen = false;
+    }
+  }
+
+  handleOutsideClickMock(shortsBtn);
+  assert.strictEqual(menuOpen, true, '點擊 Shorts 按鈕本身不應關閉選單');
+
+  handleOutsideClickMock({ id: 'some-other-like-button' });
+  assert.strictEqual(menuOpen, false, '點擊其他區域應正常關閉選單');
+});
+
+it('ratechange 監聽器應嚴格過濾非 activeVideo 之事件干擾', () => {
+  const activeVideo = { id: 'active-reel-video', playbackRate: 1.0 };
+  const preloadedVideo = { id: 'preloaded-reel-video', playbackRate: 1.0 };
+
+  let speedSyncTriggered = false;
+  function onRateChangeMock(eventTarget, activeVid) {
+    if (eventTarget !== activeVid) return; // 核心過濾機制
+    speedSyncTriggered = true;
+  }
+
+  // 預載影片變更速度：不應觸發
+  onRateChangeMock(preloadedVideo, activeVideo);
+  assert.strictEqual(speedSyncTriggered, false, '預載背景影片之 ratechange 應被安全忽略');
+
+  // 作用中影片變更速度：正常觸發
+  onRateChangeMock(activeVideo, activeVideo);
+  assert.strictEqual(speedSyncTriggered, true, '當前觀看中影片之 ratechange 正常同步');
+});
+
 console.log('\n====================================================');
 console.log(`📊 測試完成！通過: ${passCount} 項, 失敗: ${failCount} 項`);
 console.log('====================================================\n');

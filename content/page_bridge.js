@@ -139,9 +139,47 @@
     }
   }
 
+  function isShortsUrl() {
+    return window.location.pathname.startsWith('/shorts') || Boolean(document.querySelector('ytd-shorts'));
+  }
+
+  function getActiveVideo() {
+    try {
+      if (isShortsUrl()) {
+        const activeReel = document.querySelector('ytd-reel-video-renderer[is-active]');
+        if (activeReel) {
+          const v = activeReel.querySelector('video');
+          if (v) return v;
+        }
+        const shortsVideos = document.querySelectorAll('ytd-shorts video, ytd-reel-video-renderer video');
+        for (const v of shortsVideos) {
+          if (!v.paused && v.readyState >= 2) return v;
+        }
+        for (const v of shortsVideos) {
+          if (v.currentTime > 0) return v;
+        }
+        if (shortsVideos.length > 0) return shortsVideos[0];
+      }
+    } catch {}
+    return document.querySelector('video.html5-main-video') || document.querySelector('video');
+  }
+
+  function getActivePlayer() {
+    try {
+      if (isShortsUrl()) {
+        const activeReel = document.querySelector('ytd-reel-video-renderer[is-active]');
+        if (activeReel) {
+          const p = activeReel.querySelector('.html5-video-player') || activeReel.querySelector('#player-container') || activeReel;
+          if (p) return p;
+        }
+      }
+    } catch {}
+    return document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+  }
+
   function togglePlay() {
     try {
-      const player = document.getElementById('movie_player');
+      const player = getActivePlayer();
       if (player && typeof player.getPlayerState === 'function') {
         const state = player.getPlayerState();
         // 1 = playing, 2 = paused
@@ -152,7 +190,7 @@
         }
         return;
       }
-      const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+      const video = getActiveVideo();
       if (video) {
         if (video.paused) video.play();
         else video.pause();
@@ -164,11 +202,11 @@
     try {
       const num = parseFloat(speed);
       if (isNaN(num) || num <= 0) return;
-      const player = document.getElementById('movie_player');
+      const player = getActivePlayer();
       if (player && typeof player.setPlaybackRate === 'function') {
         player.setPlaybackRate(num);
       }
-      const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+      const video = getActiveVideo();
       if (video) {
         video.playbackRate = num;
       }

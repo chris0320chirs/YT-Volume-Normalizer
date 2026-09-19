@@ -25,7 +25,7 @@
   'use strict';
 
   // 版本化 LOADED 旗標：每個版本獨立旗標，避免舊版旗標阻擋新版載入
-  const _VERSION = '1.8.8';
+  const _VERSION = '1.9.0';
   const _FLAG = `__YT_VOLUME_NORMALIZER_${_VERSION.replace(/\./g, '_')}__`;
 
   // 若「當前版本」已載入，直接退出（自我去重保護）
@@ -517,6 +517,57 @@
     if (pipeline && audioCtx) {
       pipeline.noiseGateGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.02);
     }
+  }
+
+  /**
+   * 判定當前頁面是否為 YouTube Shorts (直式短影音)
+   */
+  function isShortsUrl() {
+    return window.location.pathname.startsWith('/shorts') || Boolean(document.querySelector('ytd-shorts'));
+  }
+
+  /**
+   * 智慧取得目前真正作用中 (Active/Playing) 的視訊標籤
+   * 在一般頁面：返回主播放器 <video>
+   * 在 Shorts 頁面：精確返回 ytd-reel-video-renderer[is-active] 中的 <video>，杜絕抓到背景預載影片
+   */
+  function getActiveVideo() {
+    try {
+      if (isShortsUrl()) {
+        const activeReel = document.querySelector('ytd-reel-video-renderer[is-active]');
+        if (activeReel) {
+          const v = activeReel.querySelector('video');
+          if (v) return v;
+        }
+        const shortsVideos = document.querySelectorAll('ytd-shorts video, ytd-reel-video-renderer video');
+        for (const v of shortsVideos) {
+          if (!v.paused && v.readyState >= 2) return v;
+        }
+        for (const v of shortsVideos) {
+          if (v.currentTime > 0) return v;
+        }
+        if (shortsVideos.length > 0) return shortsVideos[0];
+      }
+    } catch {}
+    return document.querySelector('video.html5-main-video') || document.querySelector('video');
+  }
+
+  /**
+   * 智慧取得目前作用中的播放器容器
+   * 在一般頁面：返回 #movie_player 或 .html5-video-player
+   * 在 Shorts 頁面：返回當前 active reel 的 player-container 或 html5-video-player
+   */
+  function getActivePlayer() {
+    try {
+      if (isShortsUrl()) {
+        const activeReel = document.querySelector('ytd-reel-video-renderer[is-active]');
+        if (activeReel) {
+          const p = activeReel.querySelector('.html5-video-player') || activeReel.querySelector('#player-container') || activeReel;
+          if (p) return p;
+        }
+      }
+    } catch {}
+    return document.getElementById('movie_player') || document.querySelector('.html5-video-player');
   }
 
   /**
@@ -1236,6 +1287,79 @@
         border: 1px solid rgba(251, 191, 36, 0.35);
       }
 
+      /* YouTube Shorts 專屬倍速操作鈕 */
+      .ytp-shorts-speed-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 12px;
+        cursor: pointer;
+        user-select: none;
+        z-index: 25;
+      }
+
+      .ytp-shorts-speed-badge {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.14);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        color: #ffffff;
+        font-family: 'Roboto', 'YouTube Noto', sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      }
+
+      .ytp-shorts-speed-btn:hover .ytp-shorts-speed-badge {
+        background: rgba(255, 255, 255, 0.26);
+        transform: scale(1.08);
+      }
+
+      .ytp-shorts-speed-badge.speed-boosted {
+        color: #38bdf8;
+        background: rgba(56, 189, 248, 0.22);
+        border-color: rgba(56, 189, 248, 0.45);
+        box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+      }
+
+      .ytp-shorts-speed-badge.speed-music {
+        color: #c084fc;
+        background: rgba(168, 85, 247, 0.22);
+        border-color: rgba(168, 85, 247, 0.45);
+        box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
+      }
+
+      .ytp-shorts-speed-badge.speed-turbo {
+        color: #ff0033;
+        background: rgba(255, 0, 51, 0.25);
+        border-color: rgba(255, 0, 51, 0.55);
+        box-shadow: 0 0 12px rgba(255, 0, 51, 0.6);
+        animation: turboGlow 1.5s ease-in-out infinite alternate;
+      }
+
+      .ytp-shorts-speed-badge.speed-slow {
+        color: #fbbf24;
+        background: rgba(251, 191, 36, 0.22);
+        border-color: rgba(251, 191, 36, 0.45);
+        box-shadow: 0 0 10px rgba(251, 191, 36, 0.35);
+      }
+
+      .ytp-shorts-speed-label {
+        font-size: 11px;
+        font-weight: 500;
+        color: #f1f1f1;
+        margin-top: 4px;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      }
+
       /* 播放器速度彈出面板 (Modern Flagship Speed Panel) */
       .ytp-speed-menu {
         position: absolute;
@@ -1569,7 +1693,7 @@
     try {
       injectMusicModeStyles();
 
-      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      const player = getActivePlayer();
       if (!player) return;
 
       // 1. 確保遮罩存在
@@ -1615,7 +1739,7 @@
               return;
             }
             window.postMessage({ type: 'YT_NORMALIZER_TOGGLE_PLAY' }, '*');
-            const playerEl = document.getElementById('movie_player');
+            const playerEl = getActivePlayer();
             if (playerEl && typeof playerEl.focus === 'function') {
               playerEl.focus(); // 鎖定鍵盤焦點於播放器，確保 Space / K 鍵依然生效
             }
@@ -1704,8 +1828,8 @@
   function updateMusicModeVisualState(enabled) {
     const overlay = document.getElementById('yt-music-mode-overlay');
     const btn = document.getElementById('ytp-music-mode-btn');
-    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-    const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+    const video = getActiveVideo();
+    const player = getActivePlayer();
 
     if (enabled) {
       document.documentElement.classList.add('yt-music-mode-active');
@@ -1829,8 +1953,27 @@
       }
     }
 
+    // 7.5. YouTube Shorts 專屬背景音樂音軌辨識 (Sound Title / Audio Track Attribution)
+    if (isShortsUrl()) {
+      const activeReel = document.querySelector('ytd-reel-video-renderer[is-active]');
+      if (activeReel) {
+        const soundBtn = activeReel.querySelector(
+          'ytd-reel-player-overlay-renderer yt-icon[icon*="music"], ' +
+          'ytd-reel-player-overlay-renderer yt-icon[icon*="audio"], ' +
+          'ytd-reel-player-overlay-renderer ytd-audio-track-button-renderer, ' +
+          'ytd-reel-player-overlay-renderer .ytp-shorts-sound-title'
+        );
+        if (soundBtn) {
+          return { isMusic: true, reason: 'Shorts 包含官方音樂音軌' };
+        }
+      }
+    }
+
     // 8. 影片標題強特徵規則 (MV / Official Music Video / Official Audio 等)
-    const domTitle = document.querySelector('h1.ytd-watch-metadata, h1.title')?.textContent?.trim() || document.title || '';
+    const shortsTitle = isShortsUrl()
+      ? (document.querySelector('ytd-reel-video-renderer[is-active] h2, ytd-reel-video-renderer[is-active] .title')?.textContent?.trim() || '')
+      : '';
+    const domTitle = shortsTitle || document.querySelector('h1.ytd-watch-metadata, h1.title')?.textContent?.trim() || document.title || '';
     const title = currentVideoMetadata.title || domTitle;
     const musicTitlePatterns = [
       /\bofficial\s+(music\s+)?video\b/i,
@@ -1839,9 +1982,9 @@
       /\blyric(s)?\s+video\b/i,
       /\b(mv|m\/v)\b/i,
       /\b(feat\.|ft\.)\b/i,
-      /\b(remix|instrumental|ost|soundtrack|bgm)\b/i,
+      /\b(remix|instrumental|ost|soundtrack|bgm|cover|song|dance)\b/i,
       /「.*」\s*(official\s+video|mv)/i,
-      /【.*】\s*(official\s+video|mv|動畫MV|音樂錄影帶)/i,
+      /【.*】\s*(official\s+video|mv|動畫MV|音樂錄影帶|翻唱)/i,
     ];
     if (musicTitlePatterns.some((pattern) => pattern.test(title))) {
       return { isMusic: true, reason: '標題命中音樂關鍵字特徵' };
@@ -1890,7 +2033,7 @@
     const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
     currentSettings.playbackSpeed = num;
     window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: num }, '*');
-    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    const video = getActiveVideo();
     if (video) {
       video.playbackRate = num;
     }
@@ -1918,8 +2061,15 @@
   let hudToastTimeout = null;
   function showSpeedHudToast(speed) {
     try {
-      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      const player = getActivePlayer();
       if (!player) return;
+
+      // 確保容器具有定位屬性，使絕對定位的 HUD Toast 能準確置中於短片/影片中央
+      try {
+        if (window.getComputedStyle(player).position === 'static') {
+          player.style.position = 'relative';
+        }
+      } catch {}
 
       let toast = document.getElementById('yt-speed-hud-toast');
       if (!toast || !toast.isConnected) {
@@ -2042,7 +2192,7 @@
 
   function ensureSpeedMenu() {
     try {
-      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      const player = getActivePlayer();
       if (!player) return null;
 
       let menu = document.getElementById('ytp-speed-menu');
@@ -2241,16 +2391,32 @@
 
       renderSpeedMenu(menu);
 
-      // 動態定位於倍速按鈕正上方
-      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-      const btn = document.getElementById('ytp-speed-btn');
-      if (player && btn) {
-        const playerRect = player.getBoundingClientRect();
-        const btnRect = btn.getBoundingClientRect();
-        const rightOffset = playerRect.right - btnRect.right;
-        menu.style.right = `${Math.max(8, rightOffset - 36)}px`;
-        const bottomOffset = playerRect.bottom - btnRect.top + 10;
-        menu.style.bottom = `${bottomOffset}px`;
+      // 動態定位
+      const player = getActivePlayer();
+      if (isShortsUrl()) {
+        const shortsBtn = document.getElementById('ytp-shorts-speed-btn');
+        if (shortsBtn) {
+          const btnRect = shortsBtn.getBoundingClientRect();
+          menu.style.right = `${Math.max(16, window.innerWidth - btnRect.left + 12)}px`;
+          menu.style.top = `${Math.max(20, Math.min(window.innerHeight - 380, btnRect.top - 80))}px`;
+          menu.style.bottom = 'auto';
+        } else if (player) {
+          const playerRect = player.getBoundingClientRect();
+          menu.style.right = `${Math.max(16, window.innerWidth - playerRect.right + 20)}px`;
+          menu.style.top = `${Math.max(20, playerRect.top + 60)}px`;
+          menu.style.bottom = 'auto';
+        }
+      } else {
+        const btn = document.getElementById('ytp-speed-btn');
+        if (player && btn) {
+          const playerRect = player.getBoundingClientRect();
+          const btnRect = btn.getBoundingClientRect();
+          const rightOffset = playerRect.right - btnRect.right;
+          menu.style.right = `${Math.max(8, rightOffset - 36)}px`;
+          const bottomOffset = playerRect.bottom - btnRect.top + 10;
+          menu.style.bottom = `${bottomOffset}px`;
+          menu.style.top = 'auto';
+        }
       }
 
       menu.style.display = 'block';
@@ -2259,41 +2425,54 @@
 
   function updateSpeedButtonDisplay(speed) {
     const badge = document.getElementById('ytp-speed-badge');
+    const shortsBadge = document.getElementById('ytp-shorts-speed-badge');
     const btn = document.getElementById('ytp-speed-btn');
+    const shortsBtn = document.getElementById('ytp-shorts-speed-btn');
     const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
     const speedStr = formatSpeedText(num);
 
-    if (badge) {
-      if (currentVideoIsMusic) {
-        badge.textContent = `🎵${speedStr}x`;
-      } else if (Math.abs(num - 3.0) < 0.01) {
-        badge.textContent = `⚡${speedStr}x`;
-      } else if (num > 1.0) {
-        badge.textContent = `⚡${speedStr}x`;
-      } else if (num < 1.0) {
-        badge.textContent = `🐢${speedStr}x`;
-      } else {
-        badge.textContent = `${speedStr}x`;
-      }
+    let displayPrefix = '';
+    let statusClass = '';
+    let titleMode = '';
+
+    if (currentVideoIsMusic) {
+      displayPrefix = '🎵';
+      statusClass = 'speed-music';
+      titleMode = `智慧調速：已識別為音樂歌曲 (${speedStr}x 原速)`;
+    } else if (Math.abs(num - 3.0) < 0.01) {
+      displayPrefix = '⚡';
+      statusClass = 'speed-turbo';
+      titleMode = `智慧調速：一般影片 (⚡${speedStr}x 暴衝速)`;
+    } else if (num > 1.0) {
+      displayPrefix = '⚡';
+      statusClass = 'speed-boosted';
+      titleMode = `智慧調速：一般影片 (${speedStr}x 倍速)`;
+    } else if (num < 1.0) {
+      displayPrefix = '🐢';
+      statusClass = 'speed-slow';
+      titleMode = `智慧調速：一般影片 (🐢${speedStr}x 慢速)`;
+    } else {
+      displayPrefix = '';
+      statusClass = '';
+      titleMode = `智慧調速：一般影片 (${speedStr}x)`;
     }
 
+    if (badge) {
+      badge.textContent = `${displayPrefix}${speedStr}x`;
+    }
     if (btn) {
       btn.className = 'ytp-button ytp-speed-btn';
-      if (currentVideoIsMusic) {
-        btn.classList.add('speed-music');
-        btn.title = `智慧調速：已識別為音樂歌曲 (${speedStr}x 原速) · 點擊選擇倍速`;
-      } else if (Math.abs(num - 3.0) < 0.01) {
-        btn.classList.add('speed-turbo');
-        btn.title = `智慧調速：一般影片 (⚡${speedStr}x 暴衝速) · 點擊選擇倍速`;
-      } else if (num > 1.0) {
-        btn.classList.add('speed-boosted');
-        btn.title = `智慧調速：一般影片 (${speedStr}x 倍速) · 點擊選擇倍速`;
-      } else if (num < 1.0) {
-        btn.classList.add('speed-slow');
-        btn.title = `智慧調速：一般影片 (🐢${speedStr}x 慢速) · 點擊選擇倍速`;
-      } else {
-        btn.title = `智慧調速：一般影片 (${speedStr}x) · 點擊選擇倍速`;
-      }
+      if (statusClass) btn.classList.add(statusClass);
+      btn.title = `${titleMode} · 點擊選擇倍速`;
+    }
+
+    if (shortsBadge) {
+      shortsBadge.textContent = `${displayPrefix}${speedStr}x`;
+      shortsBadge.className = 'ytp-shorts-speed-badge';
+      if (statusClass) shortsBadge.classList.add(statusClass);
+    }
+    if (shortsBtn) {
+      shortsBtn.title = `${titleMode} · 點擊選擇倍速 [快捷鍵 < / > / Shift+S / Shift+3]`;
     }
   }
 
@@ -2347,6 +2526,58 @@
           } catch {
             // 容錯防護
           }
+        }
+      }
+
+      updateSpeedButtonDisplay(currentSettings.playbackSpeed || 1.0);
+    } catch (err) {
+      // 容錯防護
+    }
+  }
+
+  function ensureShortsSpeedButton() {
+    try {
+      if (!isShortsUrl()) return;
+      const player = getActivePlayer();
+      if (!player) return;
+
+      // Shorts 操作按鈕群置於 ytd-reel-player-overlay-renderer 的 #actions 容器內
+      const actions = player.querySelector('ytd-reel-player-overlay-renderer #actions') || player.querySelector('#actions');
+      if (!actions) return;
+
+      const existingBtn = document.getElementById('ytp-shorts-speed-btn');
+      if (!existingBtn || !existingBtn.isConnected) {
+        if (existingBtn && !existingBtn.isConnected) {
+          try { existingBtn.remove(); } catch {}
+        }
+        const btn = document.createElement('div');
+        btn.id = 'ytp-shorts-speed-btn';
+        btn.className = 'ytp-shorts-speed-btn';
+        btn.setAttribute('title', '播放速度：點擊選擇倍速 [快捷鍵 < / > / Shift+S / Shift+3]');
+        btn.setAttribute('role', 'button');
+        btn.setAttribute('tabindex', '0');
+        btn.innerHTML = `
+          <div class="ytp-shorts-speed-badge" id="ytp-shorts-speed-badge">1.0x</div>
+          <div class="ytp-shorts-speed-label">倍速</div>
+        `;
+
+        btn.addEventListener('click', (e) => {
+          try {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSpeedMenu();
+          } catch {}
+        });
+
+        // 插入在操作按鈕列表最頂部 (比喜歡/留言按鈕更直覺明顯)
+        try {
+          if (actions.firstChild) {
+            actions.insertBefore(btn, actions.firstChild);
+          } else {
+            actions.appendChild(btn);
+          }
+        } catch {
+          actions.appendChild(btn);
         }
       }
 
@@ -2436,7 +2667,7 @@
     try {
       const menu = document.getElementById('ytp-speed-menu');
       if (!menu || menu.style.display === 'none') return;
-      if (!e.target.closest('#ytp-speed-menu') && !e.target.closest('#ytp-speed-btn')) {
+      if (!e.target.closest('#ytp-speed-menu') && !e.target.closest('#ytp-speed-btn') && !e.target.closest('#ytp-shorts-speed-btn')) {
         closeSpeedMenu();
       }
     } catch {}
@@ -2454,8 +2685,12 @@
       // 重新評估當前分頁影片內容情境 (音樂 1.0x / 影片 2.0x / 手動覆蓋) 並套用
       evaluateAndApplySmartSpeed();
 
-      // 確保底欄速度膠囊按鈕存在且顯示正確
-      ensurePlayerSpeedButton();
+      // 確保底欄或直式 Shorts 速度膠囊按鈕存在且顯示正確
+      if (isShortsUrl()) {
+        ensureShortsSpeedButton();
+      } else {
+        ensurePlayerSpeedButton();
+      }
 
       // 當前作用中分頁將自身速度記錄至 storage 供 Popup 即時讀取
       if (document.visibilityState === 'visible' && currentSettings.playbackSpeed) {
@@ -2492,7 +2727,10 @@
   document.addEventListener('ratechange', (e) => {
     try {
       if (e.target && e.target.tagName === 'VIDEO') {
-        const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+        const activeVid = getActiveVideo();
+        if (activeVid && e.target !== activeVid) return; // 忽略非當前作用中 Shorts/影片之速率變更
+
+        const player = getActivePlayer();
         const isAdPlaying = player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'));
         if (isAdPlaying) {
           wasAdPlaying = true;
@@ -2563,13 +2801,11 @@
             skipBtn.click();
           } else {
             // 嚴格檢查主播放器容器是否真正處於廣告中 (ad-showing / ad-interrupting)
-            // 嚴禁判定常駐子元素 .ytp-ad-player-overlay（此為 YouTube 常駐 DOM，會導致正常影片被誤判）
-            // 絕不可使用破壞性的 video.currentTime = duration（會導致正常影片直接跳至結尾卡死，或觸發反廣告無限旋轉圈）
-            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            const player = getActivePlayer();
             const isAdPlaying = player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'));
             if (isAdPlaying) {
               wasAdPlaying = true;
-              const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+              const video = getActiveVideo();
               if (video && !video.paused && video.playbackRate < 8) {
                 video.playbackRate = 16;
               }
@@ -2579,7 +2815,7 @@
                 lastAdEndTime = Date.now();
               }
               // 廣告已結束：若影片仍殘留於 16x 快進，立即自動還原至預期倍速
-              const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+              const video = getActiveVideo();
               if (video && video.playbackRate >= 8) {
                 const expected = parseFloat(currentSettings.playbackSpeed) || 1.0;
                 video.playbackRate = expected;
@@ -2601,7 +2837,7 @@
     }
 
     try {
-      const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+      const video = getActiveVideo();
       if (video) {
         setupAudioPipeline(video);
         if (currentSettings.playbackSpeed && currentSettings.playbackSpeed !== 1.0) {
@@ -2609,7 +2845,11 @@
         }
       }
       ensureMusicModeUi();
-      ensurePlayerSpeedButton();
+      if (isShortsUrl()) {
+        ensureShortsSpeedButton();
+      } else {
+        ensurePlayerSpeedButton();
+      }
       applyLockedQuality(currentSettings.lockedQuality);
     } catch (e) {
       // 容錯防護
@@ -2617,10 +2857,26 @@
   }
 
   // MutationObserver 搭配 debounce 節流（300ms），避免 YouTube SPA DOM 劇烈變動時過度觸發
-  // 直接觸發會在路由切換期間產生大量競態的 insertBefore 調用
+  // 針對 Shorts 切換影片時的 [is-active] 屬性變動進行即時捕獲
   let _domObserverDebounceTimer = null;
-  domObserver = new MutationObserver(() => {
+  domObserver = new MutationObserver((mutations) => {
     try {
+      let hasActiveAttrChange = false;
+      if (mutations && mutations.length > 0) {
+        for (let i = 0; i < mutations.length; i++) {
+          if (mutations[i].attributeName === 'is-active') {
+            hasActiveAttrChange = true;
+            break;
+          }
+        }
+      }
+
+      if (hasActiveAttrChange) {
+        findAndHookVideo();
+        evaluateAndApplySmartSpeed();
+        return;
+      }
+
       if (_domObserverDebounceTimer) return; // 已有等待中的觸發，跳過
       _domObserverDebounceTimer = setTimeout(() => {
         _domObserverDebounceTimer = null;
@@ -2633,14 +2889,14 @@
 
   if (document.body) {
     try {
-      domObserver.observe(document.body, { childList: true, subtree: true });
+      domObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['is-active'] });
     } catch {}
     findAndHookVideo();
   } else {
     document.addEventListener('DOMContentLoaded', () => {
       try {
         if (document.body && domObserver) {
-          domObserver.observe(document.body, { childList: true, subtree: true });
+          domObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['is-active'] });
         }
       } catch {}
       findAndHookVideo();
@@ -2683,7 +2939,13 @@
 
   document.addEventListener('play', (e) => {
     try {
-      if (e.target && e.target.tagName === 'VIDEO') setupAudioPipeline(e.target);
+      if (e.target && e.target.tagName === 'VIDEO') {
+        setupAudioPipeline(e.target);
+        if (isShortsUrl()) {
+          findAndHookVideo();
+          evaluateAndApplySmartSpeed();
+        }
+      }
     } catch {}
   }, true);
 
