@@ -24,8 +24,19 @@
 (() => {
   'use strict';
 
-  if (window.__YT_VOLUME_NORMALIZER_LOADED__) return;
-  window.__YT_VOLUME_NORMALIZER_LOADED__ = true;
+  // 版本化 LOADED 旗標：每個版本獨立旗標，避免舊版旗標阻擋新版載入
+  const _VERSION = '1.8.5';
+  const _FLAG = `__YT_VOLUME_NORMALIZER_${_VERSION.replace(/\./g, '_')}__`;
+
+  // 若「當前版本」已載入，直接退出（自我去重保護）
+  if (window[_FLAG]) return;
+
+  // 清除舊版的旗標（讓舊版的旗標失效，使其循環計時器自然失效即可）
+  // 直接標記新版已載入
+  window[_FLAG] = true;
+
+  // 主控台版本確認標識（可在 DevTools Console 確認目前執行的是哪個版本）
+  console.log(`%c[YT Normalizer v${_VERSION}] ✅ 已載入，全域護盾已啟動`, 'color:#22d3ee;font-weight:bold;');
 
   // 全域例外捕獲護盾：防止任何未預期的內部例外冒泡至 Chrome 擴充功能錯誤記錄器
   // 注意：Chrome content script 的 event.filename 格式為 chrome-extension://ExtID/path/to/file.js
