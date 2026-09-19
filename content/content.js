@@ -1230,119 +1230,254 @@
         100% { box-shadow: 0 0 12px rgba(255, 0, 51, 0.8); }
       }
 
-      /* 播放器速度彈出選單 (Speed Picker Menu) */
+      /* 播放器速度彈出面板 (Modern Flagship Speed Panel) */
       .ytp-speed-menu {
         position: absolute;
         z-index: 65 !important;
-        max-height: calc(100% - 60px);
-        min-width: 172px;
-        background: rgba(18, 19, 26, 0.96);
+        max-height: calc(100% - 50px);
+        width: min(310px, calc(100% - 20px));
+        background: rgba(18, 20, 29, 0.94);
         border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 12px;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        border-radius: 16px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
         color: #f1f5f9;
-        font-family: 'Roboto', 'YouTube Noto', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Roboto', 'YouTube Noto', -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Microsoft JhengHei', sans-serif;
         user-select: none;
-        padding: 6px 0;
+        padding: 12px 14px 10px;
         font-size: 13px;
-        line-height: 1.3;
         box-sizing: border-box;
         animation: speedMenuPop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
         transform-origin: bottom right;
-      }
-
-      @keyframes speedMenuPop {
-        from { opacity: 0; transform: translateY(6px) scale(0.96); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
-      }
-
-      .ytp-speed-menu-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 6px 14px 6px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        margin-bottom: 4px;
-      }
-
-      .ytp-speed-menu-title {
-        font-size: 11.5px;
-        font-weight: 700;
-        color: #94a3b8;
-        letter-spacing: 0.5px;
-      }
-
-      .ytp-speed-menu-current {
-        font-size: 11px;
-        font-weight: 700;
-        color: #38bdf8;
-      }
-
-      .ytp-speed-menu-list {
-        display: flex;
-        flex-direction: column;
-        max-height: 280px;
         overflow-y: auto;
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
       }
 
-      .ytp-speed-menu-item {
+      @keyframes speedMenuPop {
+        from { opacity: 0; transform: translateY(8px) scale(0.96); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      .ytp-speed-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        width: 100%;
-        padding: 6px 14px;
+        padding: 0 2px 4px;
+      }
+
+      .ytp-speed-title-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        color: #f1f5f9;
+        font-size: 13.5px;
+        font-weight: 600;
+        transition: opacity 0.12s ease;
+      }
+
+      .ytp-speed-title-wrap:hover {
+        opacity: 0.85;
+      }
+
+      .ytp-speed-back-icon {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+
+      .ytp-speed-close-btn {
         background: transparent;
         border: none;
-        color: #cbd5e1;
-        font-size: 13px;
-        font-weight: 500;
-        text-align: left;
+        color: #94a3b8;
+        font-size: 15px;
         cursor: pointer;
-        transition: background 0.12s ease, color 0.12s ease;
+        padding: 2px 6px;
+        border-radius: 6px;
+        line-height: 1;
+        transition: color 0.12s ease, background 0.12s ease;
+      }
+
+      .ytp-speed-close-btn:hover {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      /* 中央超大即時倍速顯示 */
+      .ytp-speed-hero {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin: 2px 0 12px;
+      }
+
+      .ytp-speed-val {
+        font-size: 32px;
+        font-weight: 800;
+        color: #ffffff;
+        letter-spacing: -0.5px;
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: 'tnum';
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+      }
+
+      .ytp-speed-subtag {
+        font-size: 11px;
+        font-weight: 600;
+        color: #38bdf8;
+        margin-top: 3px;
+        letter-spacing: 0.2px;
+      }
+
+      /* 微調步進器與滑桿列 */
+      .ytp-speed-stepper-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+        padding: 0 2px;
+      }
+
+      .ytp-stepper-btn {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+        font-size: 17px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.12s ease;
+        line-height: 1;
         box-sizing: border-box;
       }
 
-      .ytp-speed-menu-item:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: #ffffff;
+      .ytp-stepper-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+        transform: scale(1.06);
       }
 
-      .ytp-speed-menu-item.active {
+      .ytp-stepper-btn:active {
+        transform: scale(0.92);
+      }
+
+      /* 現代滑桿樣式 */
+      .ytp-speed-slider {
+        flex: 1;
+        -webkit-appearance: none;
+        appearance: none;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.22);
+        outline: none;
+        cursor: pointer;
+        margin: 0;
+        transition: background 0.05s ease;
+      }
+
+      .ytp-speed-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #ffffff;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.1);
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+      }
+
+      .ytp-speed-slider::-webkit-slider-thumb:hover {
+        transform: scale(1.15);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(255, 255, 255, 0.3);
+      }
+
+      .ytp-speed-slider::-webkit-slider-thumb:active {
+        transform: scale(1.05);
+      }
+
+      .ytp-speed-slider::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #ffffff;
+        border: none;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+        cursor: pointer;
+      }
+
+      /* 常用倍速膠囊列 */
+      .ytp-speed-presets-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-bottom: 4px;
+      }
+
+      .ytp-speed-preset-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 5px 2px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 18px;
+        color: #cbd5e1;
+        font-size: 12.5px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.14s ease;
+        box-sizing: border-box;
+      }
+
+      .ytp-speed-preset-item:hover {
+        background: rgba(255, 255, 255, 0.16);
+        color: #ffffff;
+        transform: translateY(-1px);
+      }
+
+      .ytp-speed-preset-item.active {
+        background: rgba(255, 255, 255, 0.24);
+        border-color: rgba(255, 255, 255, 0.35);
         color: #38bdf8;
         font-weight: 700;
-        background: rgba(56, 189, 248, 0.12);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       }
 
-      .ytp-speed-menu-item .speed-check {
-        font-size: 12px;
-        opacity: 0;
-        color: #38bdf8;
-        transform: scale(0.6);
-        transition: all 0.15s ease;
+      .ytp-speed-preset-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
       }
 
-      .ytp-speed-menu-item.active .speed-check {
-        opacity: 1;
-        transform: scale(1);
+      .ytp-speed-preset-subtext {
+        font-size: 9.5px;
+        font-weight: 500;
+        color: #94a3b8;
+        margin-top: 1px;
       }
 
-      .ytp-speed-menu-item.speed-turbo {
-        color: #f87171;
+      .ytp-speed-preset-item.active .ytp-speed-preset-subtext {
+        color: #7dd3fc;
       }
 
-      .ytp-speed-menu-item.speed-turbo.active {
-        color: #ff3344;
-        background: rgba(255, 0, 51, 0.15);
-      }
-
-      .ytp-speed-menu-footer {
+      /* 底部智慧調速還原列 */
+      .ytp-speed-restore-row {
+        margin-top: 6px;
+        padding-top: 6px;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
-        margin-top: 4px;
-        padding: 4px 6px 2px;
       }
 
       .ytp-speed-restore-btn {
@@ -1705,7 +1840,7 @@
   }
 
   function applyPlaybackSpeed(speed) {
-    const num = parseFloat(speed) || 1.0;
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
     currentSettings.playbackSpeed = num;
     window.postMessage({ type: 'YT_NORMALIZER_SET_SPEED', speed: num }, '*');
     const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
@@ -1715,7 +1850,7 @@
     updateSpeedButtonDisplay(num);
     const menu = document.getElementById('ytp-speed-menu');
     if (menu && menu.style.display !== 'none') {
-      renderSpeedMenu(menu);
+      updateSpeedPanelUi(menu, num);
     }
   }
 
@@ -1734,17 +1869,65 @@
     } catch {}
   }
 
-  const SPEED_MENU_OPTIONS = [
-    { speed: 0.5, label: '0.5x' },
-    { speed: 0.75, label: '0.75x' },
-    { speed: 1.0, label: '1.0x (正常)' },
-    { speed: 1.25, label: '1.25x' },
-    { speed: 1.5, label: '1.5x' },
-    { speed: 1.75, label: '1.75x' },
-    { speed: 2.0, label: '2.0x (倍速)' },
-    { speed: 2.5, label: '2.5x' },
-    { speed: 3.0, label: '⚡3.0x (暴衝)' },
+  const SPEED_PRESETS = [
+    { speed: 1.0, label: '1.0', subtext: '正常' },
+    { speed: 1.25, label: '1.25' },
+    { speed: 1.5, label: '1.5' },
+    { speed: 2.0, label: '2.0' },
+    { speed: 3.0, label: '3.0' },
   ];
+
+  function getSpeedSubtagText(speed) {
+    if (Math.abs(speed - 1.0) < 0.01) {
+      return currentVideoIsMusic ? '🎵 智慧聽歌 (1.00x 原速)' : '正常 (1.00x)';
+    }
+    if (Math.abs(speed - 2.0) < 0.01) {
+      return !currentVideoIsMusic ? '🎬 智慧看片 (2.00x 倍速)' : '2.00x 倍速';
+    }
+    if (Math.abs(speed - 3.0) < 0.01) {
+      return '⚡ 3.00x 暴衝極速';
+    }
+    if (speed > 1.0) {
+      return `${speed.toFixed(2)}x 倍速播放`;
+    }
+    return `${speed.toFixed(2)}x 慢速播放`;
+  }
+
+  function updateSliderProgress(slider, val) {
+    const min = 0.25;
+    const max = 3.00;
+    const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+    slider.style.background = `linear-gradient(to right, #ffffff 0%, #ffffff ${pct}%, rgba(255, 255, 255, 0.22) ${pct}%, rgba(255, 255, 255, 0.22) 100%)`;
+  }
+
+  function updateSpeedPanelUi(menu, speed) {
+    if (!menu) return;
+    const num = Math.round((parseFloat(speed) || 1.0) * 100) / 100;
+    const heroVal = menu.querySelector('#ytp-speed-hero-val');
+    const heroSubtag = menu.querySelector('#ytp-speed-hero-subtag');
+    const slider = menu.querySelector('#ytp-speed-slider-input');
+    if (heroVal) heroVal.textContent = `${num.toFixed(2)}x`;
+    if (heroSubtag) heroSubtag.textContent = getSpeedSubtagText(num);
+    if (slider) {
+      slider.value = num.toFixed(2);
+      updateSliderProgress(slider, num);
+    }
+    menu.querySelectorAll('.ytp-speed-preset-item').forEach((pill) => {
+      const pSpeed = parseFloat(pill.getAttribute('data-speed'));
+      if (Math.abs(num - pSpeed) < 0.025) {
+        pill.classList.add('active');
+      } else {
+        pill.classList.remove('active');
+      }
+    });
+
+    const currentVid = getCurrentVideoIdFromUrl();
+    const isOverridden = Boolean(manualSpeedOverriddenVideoId && manualSpeedOverriddenVideoId === currentVid);
+    const restoreRow = menu.querySelector('#ytp-speed-restore-container');
+    if (restoreRow) {
+      restoreRow.style.display = (currentSettings.smartSpeedEnabled && isOverridden) ? 'block' : 'none';
+    }
+  }
 
   function ensureSpeedMenu() {
     try {
@@ -1785,50 +1968,112 @@
 
   function renderSpeedMenu(menu) {
     if (!menu) return;
-    const currentSpeed = parseFloat(currentSettings.playbackSpeed) || 1.0;
+    const currentSpeed = Math.round((parseFloat(currentSettings.playbackSpeed) || 1.0) * 100) / 100;
     const currentVid = getCurrentVideoIdFromUrl();
     const isOverridden = Boolean(manualSpeedOverriddenVideoId && manualSpeedOverriddenVideoId === currentVid);
 
-    let listHtml = '';
-    for (const opt of SPEED_MENU_OPTIONS) {
-      const isActive = Math.abs(currentSpeed - opt.speed) < 0.05;
-      const isTurbo = opt.speed === 3.0;
-      listHtml += `
-        <button class="ytp-speed-menu-item ${isActive ? 'active' : ''} ${isTurbo ? 'speed-turbo' : ''}" data-speed="${opt.speed}" type="button">
-          <span class="speed-label">${opt.label}</span>
-          <span class="speed-check">✓</span>
+    let presetsHtml = '';
+    for (const p of SPEED_PRESETS) {
+      const isActive = Math.abs(currentSpeed - p.speed) < 0.025;
+      const subHtml = p.subtext ? `<span class="ytp-speed-preset-subtext">${p.subtext}</span>` : '';
+      presetsHtml += `
+        <button class="ytp-speed-preset-item ${isActive ? 'active' : ''}" data-speed="${p.speed}" type="button">
+          <span class="ytp-speed-preset-label">${p.label}</span>
+          ${subHtml}
         </button>
       `;
     }
 
     const showRestore = currentSettings.smartSpeedEnabled && isOverridden;
-    const footerHtml = showRestore ? `
-      <div class="ytp-speed-menu-footer">
+
+    menu.innerHTML = `
+      <div class="ytp-speed-header">
+        <div class="ytp-speed-title-wrap" id="ytp-speed-back-action" title="關閉倍速面板">
+          <span class="ytp-speed-back-icon">❮</span>
+          <span class="ytp-speed-title">播放速度</span>
+        </div>
+        <button class="ytp-speed-close-btn" id="ytp-speed-close-action" type="button" title="關閉">✕</button>
+      </div>
+      <div class="ytp-speed-hero">
+        <div class="ytp-speed-val" id="ytp-speed-hero-val">${currentSpeed.toFixed(2)}x</div>
+        <div class="ytp-speed-subtag" id="ytp-speed-hero-subtag">${getSpeedSubtagText(currentSpeed)}</div>
+      </div>
+      <div class="ytp-speed-stepper-row">
+        <button class="ytp-stepper-btn" id="ytp-speed-minus" type="button" aria-label="減少倍速">−</button>
+        <input type="range" class="ytp-speed-slider" id="ytp-speed-slider-input" min="0.25" max="3.00" step="0.05" value="${currentSpeed.toFixed(2)}">
+        <button class="ytp-stepper-btn" id="ytp-speed-plus" type="button" aria-label="增加倍速">+</button>
+      </div>
+      <div class="ytp-speed-presets-row">
+        ${presetsHtml}
+      </div>
+      <div class="ytp-speed-restore-row" id="ytp-speed-restore-container" style="display: ${showRestore ? 'block' : 'none'};">
         <button class="ytp-speed-restore-btn" id="ytp-speed-restore-action" type="button">
           <span>🤖</span>
           <span>恢復智慧調速 (${currentVideoIsMusic ? '1.0x' : '2.0x'})</span>
         </button>
       </div>
-    ` : '';
-
-    menu.innerHTML = `
-      <div class="ytp-speed-menu-header">
-        <span class="ytp-speed-menu-title">播放速度</span>
-        <span class="ytp-speed-menu-current">${currentSpeed.toFixed(currentSpeed % 1 === 0 ? 1 : 2)}x</span>
-      </div>
-      <div class="ytp-speed-menu-list">
-        ${listHtml}
-      </div>
-      ${footerHtml}
     `;
 
-    // 綁定倍速點選事件
-    menu.querySelectorAll('.ytp-speed-menu-item').forEach((item) => {
-      item.addEventListener('click', (e) => {
+    const slider = menu.querySelector('#ytp-speed-slider-input');
+    if (slider) {
+      updateSliderProgress(slider, currentSpeed);
+
+      // 滑桿拖曳事件 (即時連續調整)
+      slider.addEventListener('input', () => {
+        try {
+          const val = Math.round(parseFloat(slider.value) * 100) / 100;
+          manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+          applyPlaybackSpeed(val);
+          if (chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({ playbackSpeed: val });
+          }
+        } catch {}
+      });
+    }
+
+    // 步進器按鈕 [-]
+    const minusBtn = menu.querySelector('#ytp-speed-minus');
+    if (minusBtn) {
+      minusBtn.addEventListener('click', (e) => {
         try {
           e.preventDefault();
           e.stopPropagation();
-          const spd = parseFloat(item.getAttribute('data-speed'));
+          const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
+          const next = Math.max(0.25, Math.round((cur - 0.05) * 100) / 100);
+          manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+          applyPlaybackSpeed(next);
+          if (chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({ playbackSpeed: next });
+          }
+        } catch {}
+      });
+    }
+
+    // 步進器按鈕 [+]
+    const plusBtn = menu.querySelector('#ytp-speed-plus');
+    if (plusBtn) {
+      plusBtn.addEventListener('click', (e) => {
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+          const cur = parseFloat(currentSettings.playbackSpeed) || 1.0;
+          const next = Math.min(3.00, Math.round((cur + 0.05) * 100) / 100);
+          manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+          applyPlaybackSpeed(next);
+          if (chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({ playbackSpeed: next });
+          }
+        } catch {}
+      });
+    }
+
+    // 常用倍速膠囊點擊
+    menu.querySelectorAll('.ytp-speed-preset-item').forEach((pill) => {
+      pill.addEventListener('click', (e) => {
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+          const spd = parseFloat(pill.getAttribute('data-speed'));
           if (!isNaN(spd)) {
             manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
             applyPlaybackSpeed(spd);
@@ -1836,12 +2081,29 @@
               chrome.storage.local.set({ playbackSpeed: spd });
             }
           }
-          closeSpeedMenu();
         } catch {}
       });
     });
 
-    // 綁定恢復智慧調速事件
+    // 關閉與返回按鈕
+    const closeBtn = menu.querySelector('#ytp-speed-close-action');
+    const backAction = menu.querySelector('#ytp-speed-back-action');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSpeedMenu();
+      });
+    }
+    if (backAction) {
+      backAction.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSpeedMenu();
+      });
+    }
+
+    // 恢復智慧調速按鈕
     const restoreBtn = menu.querySelector('#ytp-speed-restore-action');
     if (restoreBtn) {
       restoreBtn.addEventListener('click', (e) => {
@@ -1850,7 +2112,7 @@
           e.stopPropagation();
           manualSpeedOverriddenVideoId = null;
           evaluateAndApplySmartSpeed(true);
-          closeSpeedMenu();
+          updateSpeedPanelUi(menu, currentSettings.playbackSpeed);
         } catch {}
       });
     }
@@ -1875,8 +2137,8 @@
         const playerRect = player.getBoundingClientRect();
         const btnRect = btn.getBoundingClientRect();
         const rightOffset = playerRect.right - btnRect.right;
-        menu.style.right = `${Math.max(8, rightOffset - 16)}px`;
-        const bottomOffset = playerRect.bottom - btnRect.top + 8;
+        menu.style.right = `${Math.max(8, rightOffset - 36)}px`;
+        const bottomOffset = playerRect.bottom - btnRect.top + 10;
         menu.style.bottom = `${bottomOffset}px`;
       }
 

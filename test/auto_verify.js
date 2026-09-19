@@ -457,36 +457,66 @@ it('播放速度應依序循環 1.0x -> 1.5x -> 2.0x -> 3.0x -> 1.0x (保留 Shi
   assert.strictEqual(cycleSpeed(3.0), 1.0);
 });
 
-const SPEED_MENU_OPTIONS_MOCK = [
-  { speed: 0.5, label: '0.5x' },
-  { speed: 0.75, label: '0.75x' },
-  { speed: 1.0, label: '1.0x (正常)' },
-  { speed: 1.25, label: '1.25x' },
-  { speed: 1.5, label: '1.5x' },
-  { speed: 1.75, label: '1.75x' },
-  { speed: 2.0, label: '2.0x (倍速)' },
-  { speed: 2.5, label: '2.5x' },
-  { speed: 3.0, label: '⚡3.0x (暴衝)' },
+const SPEED_PRESETS_MOCK = [
+  { speed: 1.0, label: '1.0', subtext: '正常' },
+  { speed: 1.25, label: '1.25' },
+  { speed: 1.5, label: '1.5' },
+  { speed: 2.0, label: '2.0' },
+  { speed: 3.0, label: '3.0' },
 ];
 
-it('倍速選單應提供完整的速度梯度選項 (0.5x ~ 3.0x)', () => {
-  const speeds = SPEED_MENU_OPTIONS_MOCK.map((o) => o.speed);
-  assert.deepStrictEqual(speeds, [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]);
+it('常用倍速膠囊應提供高頻精選預設 (1.0x 正常 ~ 3.0x 極速)', () => {
+  const speeds = SPEED_PRESETS_MOCK.map((o) => o.speed);
+  assert.deepStrictEqual(speeds, [1.0, 1.25, 1.5, 2.0, 3.0]);
+  assert.strictEqual(SPEED_PRESETS_MOCK.find((o) => o.speed === 1.0).subtext, '正常');
+  assert.strictEqual(SPEED_PRESETS_MOCK.find((o) => o.speed === 3.0).label, '3.0');
 });
 
-it('點選倍速選單項目應正確套用倍速並標記手動覆蓋', () => {
+it('倍速微調步進器 [-] / [+] 應以 0.05x 步長精確增減且在 [0.25, 3.00] 安全夾緊', () => {
+  function stepSpeed(cur, delta) {
+    const next = Math.round((cur + delta) * 100) / 100;
+    return Math.max(0.25, Math.min(3.00, next));
+  }
+
+  // 正常微調
+  assert.strictEqual(stepSpeed(1.00, 0.05), 1.05);
+  assert.strictEqual(stepSpeed(1.00, -0.05), 0.95);
+  assert.strictEqual(stepSpeed(1.25, 0.05), 1.30);
+
+  // 下界保護 (0.25x)
+  assert.strictEqual(stepSpeed(0.25, -0.05), 0.25);
+  assert.strictEqual(stepSpeed(0.26, -0.05), 0.25);
+
+  // 上界保護 (3.00x)
+  assert.strictEqual(stepSpeed(3.00, 0.05), 3.00);
+  assert.strictEqual(stepSpeed(2.98, 0.05), 3.00);
+});
+
+it('滑桿百分比填色公式應精準反映當前倍速 (0.25x 為 0%，3.00x 為 100%)', () => {
+  function calcSliderProgress(val, min = 0.25, max = 3.00) {
+    return Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+  }
+
+  assert.strictEqual(calcSliderProgress(0.25), 0);
+  assert.strictEqual(calcSliderProgress(3.00), 100);
+  // 1.00x: (1.00 - 0.25) / (3.00 - 0.25) = 0.75 / 2.75 ≈ 27.2727%
+  const p1 = calcSliderProgress(1.00);
+  assert.ok(Math.abs(p1 - 27.27) < 0.1);
+});
+
+it('點選倍速膠囊或拖曳滑桿應正確套用倍速並標記手動覆蓋', () => {
   let appliedSpeed = null;
   let overriddenVid = null;
   const currentVid = 'abc123vid';
 
-  function onSelectSpeedMenuItem(spd) {
+  function onSelectSpeed(spd) {
     overriddenVid = currentVid;
     appliedSpeed = spd;
   }
 
-  onSelectSpeedMenuItem(1.75);
-  assert.strictEqual(appliedSpeed, 1.75);
-  assert.strictEqual(overriddenVid, currentVid, '點選選單應鎖定當前影片手動覆蓋');
+  onSelectSpeed(1.25);
+  assert.strictEqual(appliedSpeed, 1.25);
+  assert.strictEqual(overriddenVid, currentVid, '操作面板應鎖定當前影片手動覆蓋');
 });
 
 // --------------------------------------------------------------------------
