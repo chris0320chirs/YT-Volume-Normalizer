@@ -28,20 +28,27 @@
   window.__YT_VOLUME_NORMALIZER_LOADED__ = true;
 
   // 全域例外捕獲護盾：防止任何未預期的內部例外冒泡至 Chrome 擴充功能錯誤記錄器
+  // 注意：Chrome content script 的 event.filename 格式為 chrome-extension://ExtID/path/to/file.js
   window.addEventListener('error', (event) => {
     try {
-      if (event && event.filename && (event.filename.includes('content.js') || event.filename.includes('page_bridge.js'))) {
+      const fn = (event && event.filename) ? event.filename : '';
+      // 匹配所有來自本擴充功能的腳本錯誤（chrome-extension:// 或文件名包含相關腳本名稱）
+      if (fn.includes('chrome-extension://') || fn.includes('content.js') || fn.includes('page_bridge.js')) {
         event.preventDefault();
         event.stopPropagation();
+        return false;
       }
     } catch {}
   }, true);
 
   window.addEventListener('unhandledrejection', (event) => {
     try {
-      if (event && event.reason && String(event.reason).includes('Extension context invalidated')) {
+      const reason = (event && event.reason) ? String(event.reason) : '';
+      if (reason.includes('Extension context invalidated') || reason.includes('NotFoundError') || reason.includes('not a child')) {
         event.preventDefault();
-        teardownOrphanedInstance();
+        if (reason.includes('Extension context invalidated')) {
+          teardownOrphanedInstance();
+        }
       }
     } catch {}
   }, true);
@@ -1181,10 +1188,14 @@
     `;
     const target = document.head || document.documentElement;
     if (target) {
-      target.appendChild(style);
+      try {
+        target.appendChild(style);
+      } catch {}
     } else {
       document.addEventListener('DOMContentLoaded', () => {
-        (document.head || document.documentElement).appendChild(style);
+        try {
+          (document.head || document.documentElement).appendChild(style);
+        } catch {}
       });
     }
   }
@@ -1767,9 +1778,18 @@
     }
   }
 
+  // MutationObserver 搭配 debounce 節流（300ms），避免 YouTube SPA DOM 劇烈變動時過度觸發
+  // 直接觸發會在路由切換期間產生大量競態的 insertBefore 調用
+  let _domObserverDebounceTimer = null;
   domObserver = new MutationObserver(() => {
     try {
-      findAndHookVideo();
+      if (_domObserverDebounceTimer) return; // 已有等待中的觸發，跳過
+      _domObserverDebounceTimer = setTimeout(() => {
+        _domObserverDebounceTimer = null;
+        try {
+          findAndHookVideo();
+        } catch {}
+      }, 300);
     } catch {}
   });
 
