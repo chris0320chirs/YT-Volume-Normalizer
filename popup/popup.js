@@ -192,18 +192,50 @@ document.addEventListener('DOMContentLoaded', () => {
     updateContainerDisabledState(isEnabled);
   });
 
+  function updateTargetVolume(newVal) {
+    const clamped = Math.min(100, Math.max(0, Math.round(newVal)));
+    targetSlider.value = clamped;
+    targetValDisplay.textContent = `${clamped}%`;
+    chrome.storage.local.set({ targetVolume: clamped, volume: clamped });
+  }
+
   // 4. 目標固定音量滑桿
   targetSlider.addEventListener('input', (e) => {
     const val = parseInt(e.target.value, 10);
-    targetValDisplay.textContent = `${val}%`;
-    chrome.storage.local.set({ targetVolume: val, volume: val });
+    updateTargetVolume(val);
   });
+
+  // 4.1 支援滑鼠滾輪在音量滑桿及卡片區域微調
+  function onVolumeSliderWheel(e) {
+    e.preventDefault();
+    if (!toggleEnabled.checked) return;
+    const currentVal = parseInt(targetSlider.value, 10) || 50;
+    // 向上滾動 (deltaY < 0) 增加音量，向下滾動 (deltaY > 0) 減少音量
+    // 按住 Shift 鍵可 1% 極致微調，一般滾動預設 2%，快速滾動 (deltaY >= 200) 每次 5%
+    let step = 2;
+    if (e.shiftKey) {
+      step = 1;
+    } else if (Math.abs(e.deltaY) >= 200) {
+      step = 5;
+    }
+    const delta = e.deltaY < 0 ? step : -step;
+    updateTargetVolume(currentVal + delta);
+  }
+
+  const volumeCard = document.querySelector('.volume-card');
+  const sliderBox = document.querySelector('.slider-box');
+  if (sliderBox) {
+    sliderBox.addEventListener('wheel', onVolumeSliderWheel, { passive: false });
+  }
+  targetSlider.addEventListener('wheel', onVolumeSliderWheel, { passive: false });
+  if (volumeCard) {
+    volumeCard.addEventListener('wheel', onVolumeSliderWheel, { passive: false });
+  }
 
   // 5. 重設為 50% 基準點
   btnResetTarget.addEventListener('click', () => {
-    targetSlider.value = 50;
-    targetValDisplay.textContent = '50%';
-    chrome.storage.local.set({ targetVolume: 50, volume: 50, volumeVersion: 2 });
+    updateTargetVolume(50);
+    chrome.storage.local.set({ volumeVersion: 2 });
   });
 
   // 輔助函式：安全發送訊息至作用中 YouTube 分頁 (過濾非 YT 分頁，杜絕通訊錯誤)

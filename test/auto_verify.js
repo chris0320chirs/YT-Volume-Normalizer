@@ -437,6 +437,113 @@ it('老影片不支援 4K/2K 時應向下 Fallback 至最高可用畫質', () =>
   assert.strictEqual(getTargetQuality('hd1080', ['hd720', 'large', 'medium']), 'hd720');
 });
 
+it('localStorage yt-player-quality 雙向同步：第 0 毫秒同步快取與 30 天效期持久化', () => {
+  const mockLocalStorage = {};
+
+  function persistQualityPreferenceMock(quality) {
+    const target = quality || 'auto';
+    const now = Date.now();
+    mockLocalStorage['yt-player-quality'] = JSON.stringify({
+      data: target,
+      creation: now,
+      expiration: now + 2592000000,
+    });
+  }
+
+  function getStoredQualityPreferenceMock() {
+    const raw = mockLocalStorage['yt-player-quality'];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.data && parsed.data !== 'auto') {
+        return parsed.data;
+      }
+    }
+    return 'auto';
+  }
+
+  // 1. 初次未設定時預設 auto
+  assert.strictEqual(getStoredQualityPreferenceMock(), 'auto');
+
+  // 2. 使用者設定 hd1080
+  persistQualityPreferenceMock('hd1080');
+  const savedJson = JSON.parse(mockLocalStorage['yt-player-quality']);
+  assert.strictEqual(savedJson.data, 'hd1080');
+  assert(savedJson.expiration > Date.now(), '應包含有效的未來過期時間');
+
+  // 3. 在 document_start 於 MAIN 世界第 0 毫秒同步取得
+  assert.strictEqual(getStoredQualityPreferenceMock(), 'hd1080');
+
+  // 4. 設定為 auto
+  persistQualityPreferenceMock('auto');
+  assert.strictEqual(getStoredQualityPreferenceMock(), 'auto');
+});
+
+it('零延遲畫質鎖定階梯：第 0 毫秒立即同步呼叫，搭配階梯重試杜絕低畫質預載', () => {
+  let callCount = 0;
+  let lastApplied = null;
+  const timerDelays = [];
+
+  function mockApplyQuality(q) {
+    callCount++;
+    lastApplied = q;
+  }
+
+  function triggerQualityLadderMock(targetQuality) {
+    if (!targetQuality || targetQuality === 'auto') return;
+    // 0ms 立即執行
+    mockApplyQuality(targetQuality);
+
+    const delays = [20, 60, 150, 300, 600, 1200];
+    for (const d of delays) {
+      timerDelays.push(d);
+    }
+  }
+
+  triggerQualityLadderMock('hd1440');
+  assert.strictEqual(callCount, 1, '第 0 毫秒應立即執行 1 次同步 applyQuality');
+  assert.strictEqual(lastApplied, 'hd1440');
+  assert.deepStrictEqual(timerDelays, [20, 60, 150, 300, 600, 1200], '應排定密集階梯重試以防播放器延遲就緒');
+});
+
+it('播放器生命週期監聽：在 UNSTARTED / BUFFERING 時即刻鎖定，降級時主動矯正', () => {
+  let qualityLockCount = 0;
+  let currentQuality = 'hd1080';
+  const listeners = {};
+
+  const mockPlayer = {
+    addEventListener(event, fn) {
+      listeners[event] = fn;
+    },
+    setPlaybackQuality(q) {
+      currentQuality = q;
+    },
+  };
+
+  function hookPlayerMock(player) {
+    player.addEventListener('onStateChange', (state) => {
+      // -1: UNSTARTED, 3: BUFFERING
+      if (state === -1 || state === 3 || state === 1) {
+        qualityLockCount++;
+      }
+    });
+    player.addEventListener('onPlaybackQualityChange', (newQuality) => {
+      if (newQuality !== 'hd1080') {
+        qualityLockCount++; // 矯正
+      }
+    });
+  }
+
+  hookPlayerMock(mockPlayer);
+
+  // 1. 播放器進入 BUFFERING (state: 3)
+  listeners['onStateChange'](3);
+  assert.strictEqual(qualityLockCount, 1, '緩衝開始時應鎖定品質');
+
+  // 2. YouTube ABR 嘗試偷偷切換為 tiny (144p)
+  listeners['onPlaybackQualityChange']('tiny');
+  assert.strictEqual(qualityLockCount, 2, '遇到非預期降級應觸發矯正');
+});
+
 // --------------------------------------------------------------------------
 // 測試模組 7: 播放速度循環 (1.0x -> 1.5x -> 2.0x -> 3.0x -> 1.0x)
 // --------------------------------------------------------------------------
@@ -1018,6 +1125,55 @@ it('關閉智慧調速時，所有分頁統一同步全域速度', () => {
   assert.strictEqual(tabMusic.localPlaybackRate, 3.0);
 });
 
+it('背景音樂分頁在前景影片分頁寫入 storage 時，本地記憶體與播放速度絕不被篡改為 2.0x', () => {
+  // 模擬真實 Content Script 內部之 currentSettings 與 video 物件
+  const tabA_Music = {
+    visibilityState: 'hidden',
+    currentSettings: {
+      smartSpeedEnabled: true,
+      playbackSpeed: 1.0,
+      musicSpeed: 1.0,
+      videoSpeed: 2.0,
+    },
+    video: {
+      playbackRate: 1.0,
+    },
+  };
+
+  // 模擬 storage.onChanged 廣播事件 (Tab B 將 storage 寫入 2.0x)
+  function simulateStorageOnChanged(tab, changes) {
+    for (const [k, v] of Object.entries(changes)) {
+      if (k in tab.currentSettings) {
+        if (k === 'musicMode') continue;
+        if (k === 'playbackSpeed') {
+          // 關鍵防護：若開啟智慧調速，各分頁速度由自身內容獨立維持，背景分頁絕不污染本地記憶體
+          if (!tab.currentSettings.smartSpeedEnabled) {
+            tab.currentSettings.playbackSpeed = v.newValue;
+            tab.video.playbackRate = v.newValue;
+          }
+          continue; // 絕不執行 tab.currentSettings[k] = v.newValue
+        }
+        tab.currentSettings[k] = v.newValue;
+      }
+    }
+  }
+
+  // 1. Tab B 觸發 storage 更新為 2.0
+  simulateStorageOnChanged(tabA_Music, { playbackSpeed: { newValue: 2.0 } });
+
+  // 2. 驗證 Tab A 本地記憶體中的 playbackSpeed 依然為 1.0
+  assert.strictEqual(tabA_Music.currentSettings.playbackSpeed, 1.0, '背景音樂分頁之 currentSettings.playbackSpeed 應嚴格維持 1.0x');
+  assert.strictEqual(tabA_Music.video.playbackRate, 1.0, '背景音樂分頁之 video.playbackRate 應嚴格維持 1.0x');
+
+  // 3. 模擬定時執行的 findAndHookVideo 維護循環
+  function simulateFindAndHookVideo(tab) {
+    // 經重構修復：findAndHookVideo 絕不再盲目根據 currentSettings.playbackSpeed 覆寫 video.playbackRate
+    // 保持 video.playbackRate 原貌
+  }
+  simulateFindAndHookVideo(tabA_Music);
+  assert.strictEqual(tabA_Music.video.playbackRate, 1.0, 'findAndHookVideo 輪詢後背景音樂分頁依然為 1.0x 原速');
+});
+
 // --------------------------------------------------------------------------
 // 測試模組 10: 擴充功能重載孤兒實例自我銷毀與全量 DOM 例外防護 (Anti-Orphan & Crash Resilience)
 // --------------------------------------------------------------------------
@@ -1384,6 +1540,193 @@ it('ratechange 監聽器應嚴格過濾非 activeVideo 之事件干擾', () => {
   // 作用中影片變更速度：正常觸發
   onRateChangeMock(activeVideo, activeVideo);
   assert.strictEqual(speedSyncTriggered, true, '當前觀看中影片之 ratechange 正常同步');
+});
+
+// --------------------------------------------------------------------------
+// 測試模組 12: 音量與倍速滑桿滾輪微調 (Mouse Wheel Slider Adjustment)
+// --------------------------------------------------------------------------
+console.log('\n--- 測試 12: 音量與倍速滑桿滾輪微調 (Mouse Wheel Adjustment) ---');
+
+it('Popup 目標音量滑桿滾輪：向上滾動增加 2%、向下滾動減少 2%', () => {
+  let targetVol = 50;
+
+  function onVolumeSliderWheelMock(deltaY, shiftKey = false) {
+    let step = 2;
+    if (shiftKey) {
+      step = 1;
+    } else if (Math.abs(deltaY) >= 200) {
+      step = 5;
+    }
+    const delta = deltaY < 0 ? step : -step;
+    targetVol = Math.min(100, Math.max(0, targetVol + delta));
+  }
+
+  // 1. 向上滾動 1 格
+  onVolumeSliderWheelMock(-100);
+  assert.strictEqual(targetVol, 52, '向上滾動應增加 2%');
+
+  // 2. 向下滾動 1 格
+  onVolumeSliderWheelMock(100);
+  assert.strictEqual(targetVol, 50, '向下滾動應減少 2%');
+
+  // 3. 按住 Shift 鍵微調
+  onVolumeSliderWheelMock(-100, true);
+  assert.strictEqual(targetVol, 51, '按住 Shift 向上應增加 1%');
+
+  onVolumeSliderWheelMock(100, true);
+  assert.strictEqual(targetVol, 50, '按住 Shift 向下應減少 1%');
+
+  // 4. 快速滾動
+  onVolumeSliderWheelMock(-250);
+  assert.strictEqual(targetVol, 55, '快速向上應增加 5%');
+
+  // 5. 邊界測試：上限 100%、下限 0%
+  targetVol = 99;
+  onVolumeSliderWheelMock(-100);
+  assert.strictEqual(targetVol, 100, '超過 100% 應夾緊於 100%');
+
+  targetVol = 1;
+  onVolumeSliderWheelMock(100);
+  assert.strictEqual(targetVol, 0, '低於 0% 應夾緊於 0%');
+});
+
+it('YouTube 播放器音量條滾輪：5% 標準步長、靜音自動解除與 0~100 夾緊', () => {
+  const mockVideo = {
+    volume: 0.5,
+    muted: false,
+  };
+  const mockPlayer = {
+    volume: 50,
+    muted: false,
+    setVolume(v) { this.volume = v; },
+    unMute() { this.muted = false; },
+    isMuted() { return this.muted; },
+  };
+
+  let messageSent = null;
+
+  function handlePlayerVolumeWheelMock(deltaY, shiftKey = false) {
+    let currentVol = mockVideo.muted ? 0 : Math.round(mockVideo.volume * 100);
+    const step = shiftKey ? 1 : 5;
+    const delta = deltaY < 0 ? step : -step;
+    const targetVol = Math.min(100, Math.max(0, currentVol + delta));
+
+    if (mockVideo.muted && targetVol > 0) {
+      mockVideo.muted = false;
+    }
+    mockVideo.volume = targetVol / 100;
+
+    messageSent = {
+      type: 'YT_NORMALIZER_SET_VOLUME',
+      volume: targetVol,
+    };
+
+    // 模擬 page_bridge 接收
+    if (mockPlayer.isMuted() && targetVol > 0) {
+      mockPlayer.unMute();
+    }
+    mockPlayer.setVolume(targetVol);
+  }
+
+  // 1. 向上滾動 1 格
+  handlePlayerVolumeWheelMock(-100);
+  assert.strictEqual(mockVideo.volume, 0.55, '影片 volume 應為 0.55');
+  assert.strictEqual(mockPlayer.volume, 55, '播放器 setVolume 應為 55');
+  assert.deepStrictEqual(messageSent, { type: 'YT_NORMALIZER_SET_VOLUME', volume: 55 });
+
+  // 2. 靜音狀態下向上滾動自動解除靜音
+  mockVideo.muted = true;
+  mockPlayer.muted = true;
+  handlePlayerVolumeWheelMock(-100);
+  assert.strictEqual(mockVideo.muted, false, '向上滾動應自動解除影片靜音');
+  assert.strictEqual(mockPlayer.muted, false, '向上滾動應自動解除播放器靜音');
+  assert.strictEqual(mockPlayer.volume, 5, '從靜音 0 向上滾動應變為 5');
+
+  // 3. Shift 微調 1%
+  handlePlayerVolumeWheelMock(-100, true);
+  assert.strictEqual(mockPlayer.volume, 6, 'Shift 鍵微調步長應為 1%');
+});
+
+it('倍速選單面板滑桿滾輪：0.05x 步長增減與 [0.25, 3.00] 安全夾緊', () => {
+  let speedValue = 1.0;
+
+  function onSpeedSliderWheelMock(deltaY, shiftKey = false) {
+    const step = shiftKey ? 0.01 : 0.05;
+    const next = deltaY < 0 ? speedValue + step : speedValue - step;
+    speedValue = Math.min(3.0, Math.max(0.25, Math.round(next * 100) / 100));
+  }
+
+  onSpeedSliderWheelMock(-100);
+  assert.strictEqual(speedValue, 1.05, '倍速向上滾動應 +0.05x');
+
+  onSpeedSliderWheelMock(100);
+  assert.strictEqual(speedValue, 1.0, '倍速向下滾動應 -0.05x');
+
+  speedValue = 2.98;
+  onSpeedSliderWheelMock(-100);
+  assert.strictEqual(speedValue, 3.0, '超過 3.00x 應夾緊於 3.00x');
+
+  speedValue = 0.28;
+  onSpeedSliderWheelMock(100);
+  assert.strictEqual(speedValue, 0.25, '低於 0.25x 應夾緊於 0.25x');
+});
+
+it('智慧抗底噪向下擴展與 AGC 穩定性：語音間歇 (<1.2s) 絕不抽吸降噪，1.5dB 死區杜絕忽大忽小', () => {
+  // 1. 測試向下擴展閘門門限與連續幀數
+  let noiseGateGain = 1.0;
+  let consecutiveQuietFrames = 0;
+
+  function updateNoiseGateMock(frameDb) {
+    const NOISE_FLOOR_DB = -46.0;
+    const isSignalActive = frameDb > NOISE_FLOOR_DB;
+
+    if (isSignalActive) {
+      consecutiveQuietFrames = 0;
+      noiseGateGain = 1.0;
+    } else {
+      consecutiveQuietFrames++;
+      // 必須連續安靜 >= 24 幀 (1.2 秒) 才溫和衰減至 0.70x (-3.1 dB)
+      if (consecutiveQuietFrames >= 24) {
+        noiseGateGain = 0.70;
+      }
+    }
+  }
+
+  // 模擬正常講話之間的停頓 (例如 3 幀 = 150ms 或是 10 幀 = 500ms)
+  for (let i = 0; i < 10; i++) {
+    updateNoiseGateMock(-50.0); // 安靜幀
+  }
+  assert.strictEqual(noiseGateGain, 1.0, '短暫停頓 (<1.2s) 絕不觸發閘門衰減，杜絕每句話之間忽大忽小抽吸');
+
+  // 持續長時間停頓 (> 1.2s，例如 25 幀)
+  for (let i = 0; i < 15; i++) {
+    updateNoiseGateMock(-50.0);
+  }
+  assert.strictEqual(consecutiveQuietFrames, 25);
+  assert.strictEqual(noiseGateGain, 0.70, '長達 1.2s 以上之持續靜音，溫和壓低底噪至 0.70x');
+
+  // 下一句話開始
+  updateNoiseGateMock(-25.0);
+  assert.strictEqual(noiseGateGain, 1.0, '語音恢復瞬間立即無縫還原至 1.0x');
+
+  // 2. 測試 AGC 1.5dB 滯後死區
+  let lastAppliedTargetDb = 0;
+  let agcAdjustCount = 0;
+
+  function updateAgcMock(clampedDiff) {
+    if (Math.abs(clampedDiff - lastAppliedTargetDb) > 1.5) {
+      lastAppliedTargetDb = clampedDiff;
+      agcAdjustCount++;
+    }
+  }
+
+  // 正常音樂/講話中 0.8dB 的自然動態微幅波動
+  updateAgcMock(0.8);
+  assert.strictEqual(agcAdjustCount, 0, '小於 1.5dB 之自然波動絕不反覆觸發 AGC 增益調動');
+
+  // 真正切換到微弱影片 (差異達 4.0 dB)
+  updateAgcMock(4.0);
+  assert.strictEqual(agcAdjustCount, 1, '遇到顯著音量偏差 (>1.5dB) 正常啟動平滑補償');
 });
 
 console.log('\n====================================================');

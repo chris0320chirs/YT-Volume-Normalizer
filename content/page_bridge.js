@@ -81,26 +81,85 @@
     }, '*');
   }
 
-  // 監聽 YouTube 導航完成事件
-  window.addEventListener('yt-navigate-finish', () => {
-    try {
-      onNavigateReapply();
-    } catch {}
-  });
-
-  window.addEventListener('loadstart', () => {
-    try {
-      onNavigateReapply();
-    } catch {}
-  }, true);
-
   const QUALITY_PRIORITY = ['hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
-  let currentLockedQuality = 'auto';
+
+  /**
+   * 讀取 YouTube 本地儲存之畫質偏好 (在 document_start 於 MAIN 世界第 0 毫秒同步取得)
+   */
+  function getStoredQualityPreference() {
+    try {
+      const raw = window.localStorage.getItem('yt-player-quality');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.data && parsed.data !== 'auto') {
+          return parsed.data;
+        }
+      }
+    } catch {}
+    return 'auto';
+  }
+
+  /**
+   * 同步寫入 YouTube 本地儲存 yt-player-quality
+   * 使 YouTube 原生播放器 ABR 在初始讀取 Manifest 前便以此作為預設目標畫質，杜絕以 360p/480p 低畫質預載
+   */
+  function persistQualityPreference(quality) {
+    try {
+      const target = quality || 'auto';
+      const now = Date.now();
+      window.localStorage.setItem('yt-player-quality', JSON.stringify({
+        data: target,
+        creation: now,
+        expiration: now + 2592000000 // 30 天
+      }));
+    } catch {}
+  }
+
+  let currentLockedQuality = getStoredQualityPreference();
+
+  function computeChosenQuality(targetQuality, available) {
+    if (!targetQuality || targetQuality === 'auto') return 'auto';
+    if (!Array.isArray(available) || available.length === 0) return targetQuality;
+    if (available.includes(targetQuality)) return targetQuality;
+
+    const prefIdx = QUALITY_PRIORITY.indexOf(targetQuality);
+    const fallbackList = prefIdx >= 0 ? QUALITY_PRIORITY.slice(prefIdx) : QUALITY_PRIORITY;
+    const matched = fallbackList.find((q) => available.includes(q));
+    return matched || available[0];
+  }
+
+  let hookedPlayer = null;
+  function ensurePlayerListeners(player) {
+    try {
+      if (!player || hookedPlayer === player) return;
+      if (typeof player.addEventListener === 'function') {
+        player.addEventListener('onStateChange', (state) => {
+          // -1: UNSTARTED, 1: PLAYING, 3: BUFFERING, 5: CUED
+          if (state === -1 || state === 3 || state === 1 || state === 5) {
+            if (currentLockedQuality && currentLockedQuality !== 'auto') {
+              applyQuality(currentLockedQuality);
+            }
+          }
+        });
+        player.addEventListener('onPlaybackQualityChange', (newQuality) => {
+          if (currentLockedQuality && currentLockedQuality !== 'auto') {
+            // 若 YouTube 嘗試降級，立即再次強制鎖定
+            if (newQuality !== currentLockedQuality) {
+              applyQuality(currentLockedQuality);
+            }
+          }
+        });
+        hookedPlayer = player;
+      }
+    } catch {}
+  }
 
   function applyQuality(targetQuality) {
     try {
-      const player = document.getElementById('movie_player');
+      const player = getActivePlayer() || document.getElementById('movie_player');
       if (!player) return;
+
+      ensurePlayerListeners(player);
 
       if (!targetQuality || targetQuality === 'auto') {
         if (typeof player.setPlaybackQualityRange === 'function') {
@@ -111,21 +170,15 @@
         return;
       }
 
-      // 若目前播放品質已是 targetQuality，避免重複呼叫打斷串流緩衝
-      if (typeof player.getPlaybackQuality === 'function' && player.getPlaybackQuality() === targetQuality) {
-        return;
-      }
-
       const available = typeof player.getAvailableQualityLevels === 'function'
         ? player.getAvailableQualityLevels()
         : [];
 
-      let chosen = targetQuality;
-      if (available.length > 0 && !available.includes(targetQuality)) {
-        const prefIdx = QUALITY_PRIORITY.indexOf(targetQuality);
-        const fallbackList = prefIdx >= 0 ? QUALITY_PRIORITY.slice(prefIdx) : QUALITY_PRIORITY;
-        const matched = fallbackList.find((q) => available.includes(q));
-        chosen = matched || available[0];
+      const chosen = computeChosenQuality(targetQuality, available);
+
+      // 若目前播放品質已是 chosen，避免重複呼叫打斷串流緩衝
+      if (typeof player.getPlaybackQuality === 'function' && player.getPlaybackQuality() === chosen) {
+        return;
       }
 
       if (typeof player.setPlaybackQualityRange === 'function') {
@@ -138,6 +191,77 @@
       // 容錯防護
     }
   }
+
+  let qualityLadderTimers = [];
+  function clearQualityLadder() {
+    qualityLadderTimers.forEach((t) => clearTimeout(t));
+    qualityLadderTimers = [];
+  }
+
+  /**
+   * 零延遲畫質鎖定階梯 (Zero-Delay Quality Ladder)
+   * 0ms 立即執行第一次嘗試，並搭配微小間隔快速重試，
+   * 確保播放器只要一就緒或清晰度清單剛填充，瞬間鎖定，杜絕低畫質預載
+   */
+  function triggerQualityLadder(targetQuality) {
+    const q = targetQuality || currentLockedQuality;
+    if (!q || q === 'auto') return;
+
+    // 0ms 立即執行
+    applyQuality(q);
+
+    clearQualityLadder();
+    const delays = [20, 60, 150, 300, 600, 1200];
+    for (const d of delays) {
+      const timer = setTimeout(() => {
+        applyQuality(q);
+      }, d);
+      qualityLadderTimers.push(timer);
+    }
+  }
+
+  // 監聽 YouTube SPA 生命週期事件 (全鏈路 0ms 觸發)
+  window.addEventListener('yt-navigate-start', () => {
+    try {
+      triggerQualityLadder();
+    } catch {}
+  });
+
+  window.addEventListener('yt-navigate-finish', () => {
+    try {
+      onNavigateReapply();
+    } catch {}
+  });
+
+  window.addEventListener('yt-page-data-updated', () => {
+    try {
+      if (currentLockedQuality && currentLockedQuality !== 'auto') {
+        triggerQualityLadder();
+      }
+    } catch {}
+  });
+
+  window.addEventListener('loadstart', () => {
+    try {
+      onNavigateReapply();
+    } catch {}
+  }, true);
+
+  window.addEventListener('loadedmetadata', () => {
+    try {
+      if (currentLockedQuality && currentLockedQuality !== 'auto') {
+        triggerQualityLadder();
+      }
+    } catch {}
+  }, true);
+
+  window.addEventListener('canplay', () => {
+    try {
+      if (currentLockedQuality && currentLockedQuality !== 'auto') {
+        applyQuality(currentLockedQuality);
+      }
+    } catch {}
+  }, true);
 
   function isShortsUrl() {
     return window.location.pathname.startsWith('/shorts') || Boolean(document.querySelector('ytd-shorts'));
@@ -215,6 +339,28 @@
     }
   }
 
+  function applyVolume(vol) {
+    try {
+      const volume = Math.min(100, Math.max(0, Math.round(vol)));
+      const player = getActivePlayer();
+      if (player && typeof player.setVolume === 'function') {
+        if (typeof player.isMuted === 'function' && player.isMuted() && volume > 0) {
+          if (typeof player.unMute === 'function') player.unMute();
+        }
+        player.setVolume(volume);
+      }
+      const video = getActiveVideo();
+      if (video) {
+        if (video.muted && volume > 0) {
+          video.muted = false;
+        }
+        video.volume = volume / 100;
+      }
+    } catch (e) {
+      // 容錯防護
+    }
+  }
+
   // 監聽來自 Content Script 的指令
   window.addEventListener('message', (event) => {
     try {
@@ -224,9 +370,12 @@
         applyQuality(event.data.quality);
       } else if (event.data.type === 'YT_NORMALIZER_LOCK_QUALITY') {
         currentLockedQuality = event.data.quality || 'auto';
-        applyQuality(currentLockedQuality);
+        persistQualityPreference(currentLockedQuality);
+        triggerQualityLadder(currentLockedQuality);
       } else if (event.data.type === 'YT_NORMALIZER_SET_SPEED') {
         applySpeed(event.data.speed);
+      } else if (event.data.type === 'YT_NORMALIZER_SET_VOLUME') {
+        applyVolume(event.data.volume);
       } else if (event.data.type === 'YT_NORMALIZER_TOGGLE_PLAY') {
         togglePlay();
       }
@@ -236,19 +385,19 @@
   function onNavigateReapply() {
     try {
       extractAndSendLoudness();
+      triggerQualityLadder();
       setTimeout(extractAndSendLoudness, 300);
       setTimeout(extractAndSendLoudness, 800);
       setTimeout(extractAndSendLoudness, 1600);
-      if (currentLockedQuality && currentLockedQuality !== 'auto') {
-        setTimeout(() => applyQuality(currentLockedQuality), 300);
-        setTimeout(() => applyQuality(currentLockedQuality), 1000);
-      }
     } catch {}
   }
 
-  // 初始嘗試提取
+  // 初始嘗試提取與畫質立即鎖定
   try {
     extractAndSendLoudness();
+    if (currentLockedQuality && currentLockedQuality !== 'auto') {
+      triggerQualityLadder(currentLockedQuality);
+    }
     setTimeout(extractAndSendLoudness, 500);
     setTimeout(extractAndSendLoudness, 1500);
   } catch {}

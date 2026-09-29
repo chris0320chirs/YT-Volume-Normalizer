@@ -25,7 +25,7 @@
   'use strict';
 
   // 版本化 LOADED 旗標：每個版本獨立旗標，避免舊版旗標阻擋新版載入
-  const _VERSION = '1.9.0';
+  const _VERSION = '1.9.3';
   const _FLAG = `__YT_VOLUME_NORMALIZER_${_VERSION.replace(/\./g, '_')}__`;
 
   // 若「當前版本」已載入，直接退出（自我去重保護）
@@ -83,28 +83,28 @@
   // 廣播級等化風格與壓縮器矩陣 (以 50% 為剛剛好的舒適聆聽基準)
   const LEVELER_CONFIGS = {
     standard: {
-      threshold: -24.0,       // dBFS (最佳工作點)
-      ratio: 10.0,            // 10:1 廣播平整比，保留良好質感且不再互調失真
+      threshold: -18.0,       // -18dBFS 溫和廣播工作點，寬鬆容納 -21dBFS 正常語音與音樂
+      ratio: 3.5,             // 3.5:1 平滑廣播壓平比，保留自然質感，徹底杜絕劇烈抽吸
       knee: 18.0,             // 18dB 寬膝平滑過渡
-      attack: 0.008,          // 8ms 瞬態平滑，杜絕低頻破音
-      release: 0.38,          // 380ms 自然平滑釋放，杜絕喘息與底噪抽吸
-      baseMakeupGainDb: -1.5, // 50% 時的標準化妝增益 (剛好舒適)
+      attack: 0.015,          // 15ms 瞬態平滑，杜絕破音與突兀下壓
+      release: 0.45,          // 450ms 自然平滑釋放，杜絕喘息與底噪抽吸
+      baseMakeupGainDb: -1.0, // 50% 時的標準化妝增益 (剛好舒適)
     },
     vocal: {
-      threshold: -27.0,       // 更深捕獲微弱對話
-      ratio: 12.0,
+      threshold: -21.0,       // 溫和捕獲微弱對話
+      ratio: 4.5,
       knee: 16.0,
-      attack: 0.006,
-      release: 0.32,
+      attack: 0.010,
+      release: 0.40,
       baseMakeupGainDb: -0.5, // 50% 時的人聲強化化妝增益
     },
     music: {
-      threshold: -20.0,
-      ratio: 6.0,
+      threshold: -16.0,       // 音樂原味門限，保護樂器動態
+      ratio: 2.5,             // 2.5:1 極溫和撫平，保留樂器自然呼吸感
       knee: 20.0,
-      attack: 0.015,
-      release: 0.45,
-      baseMakeupGainDb: -3.0, // 50% 時的音樂原味化妝增益
+      attack: 0.025,
+      release: 0.50,
+      baseMakeupGainDb: -2.0, // 50% 時的音樂原味化妝增益
     },
   };
 
@@ -118,8 +118,8 @@
   // 官方預讀元數據
   let ytOfficialLoudnessDb = null;
 
-  // 宏觀長期滑動視窗 (3.0 秒，平穩追蹤)
-  const MACRO_WINDOW_SIZE = 60; // 60 * 50ms = 3.0s
+  // 宏觀長期滑動視窗 (7.0 秒，平穩追蹤，消除短時抽吸)
+  const MACRO_WINDOW_SIZE = 140; // 140 * 50ms = 7.0s
   const macroRmsHistory = [];
   let consecutiveQuietFrames = 0;
   let lastAppliedTargetDb = 0;
@@ -244,15 +244,17 @@
           // 音樂模式 (musicMode) 為分頁獨立狀態，不跨分頁同步
           // 其他設定仍正常同步
           if (k === 'musicMode') continue;
-          currentSettings[k] = v.newValue;
-          if (k === 'lockedQuality') applyLockedQuality(v.newValue);
           if (k === 'playbackSpeed') {
-            // 關鍵防護：僅在關閉智慧調速（使用全域固定速度）時，才跨分頁同步套用
-            // 若開啟智慧調速，各分頁依據自身內容（聽歌 1.0x / 看片 2.0x）獨立維持，杜絕互相干擾
+            // 關鍵防護：若開啟智慧調速，各分頁速度由自身內容（聽歌 1.0x / 看片 2.0x）完全獨立決定，
+            // storage.local 上的 playbackSpeed 僅由前景分頁寫入供 Popup 讀取，背景分頁絕不接收同步，杜絕污染本地記憶體
             if (!currentSettings.smartSpeedEnabled) {
+              currentSettings.playbackSpeed = v.newValue;
               applyPlaybackSpeed(v.newValue);
             }
+            continue;
           }
+          currentSettings[k] = v.newValue;
+          if (k === 'lockedQuality') applyLockedQuality(v.newValue);
           if (k === 'smartSpeedEnabled' || k === 'musicSpeed' || k === 'videoSpeed') {
             evaluateAndApplySmartSpeed(true);
           }
@@ -460,12 +462,12 @@
     let effectiveBaseMakeup = cfg.baseMakeupGainDb;
 
     if (currentSettings.rangeTightness === 'strict') {
-      effectiveRatio = Math.min(14.0, cfg.ratio * 1.25);
+      effectiveRatio = Math.min(6.0, cfg.ratio * 1.3);
       effectiveThreshold = cfg.threshold - 2.0;
-      effectiveKnee = Math.max(12.0, cfg.knee - 4.0);
+      effectiveKnee = Math.max(14.0, cfg.knee - 3.0);
       effectiveBaseMakeup += 0.5;
     } else if (currentSettings.rangeTightness === 'wide') {
-      effectiveRatio = Math.max(4.0, cfg.ratio * 0.65);
+      effectiveRatio = Math.max(2.0, cfg.ratio * 0.7);
       effectiveThreshold = cfg.threshold + 3.0;
       effectiveKnee = cfg.knee + 4.0;
       effectiveBaseMakeup -= 0.5;
@@ -681,8 +683,8 @@
       const frameRms = Math.sqrt(sumSq / inBuf.length);
       const frameDb = 20 * Math.log10(Math.max(frameRms, 0.000001));
 
-      // 2. 智慧抗底噪門限判定 (Noise Floor Threshold: -46.0 dBFS)
-      // 在對話間歇或純環境雜音時，啟動向下擴展，絕不盲目拉高噪訊
+      // 2. 智慧抗底噪門限判定 (Noise Floor Downward Expander: -46.0 dBFS)
+      // 在持續安靜或純環境雜音時溫和壓低底噪，但絕不可在正常說話或音樂間歇斷續抽吸
       const NOISE_FLOOR_DB = -46.0;
       const isSignalActive = frameDb > NOISE_FLOOR_DB;
 
@@ -692,19 +694,20 @@
         if (macroRmsHistory.length > MACRO_WINDOW_SIZE) {
           macroRmsHistory.shift();
         }
-        // 人聲或音樂活躍，降噪閘門平滑維持 1.0 (全頻段無衰減)
-        pipeline.noiseGateGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.03);
+        // 人聲或音樂活躍，向下擴展閘門平滑維持 1.0 (全頻段無衰減)
+        pipeline.noiseGateGain.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.05);
       } else {
         consecutiveQuietFrames++;
-        // 連續 3 幀 (150ms) 低於門限，判定為對話間歇或純背景底噪
-        if (consecutiveQuietFrames >= 3) {
-          // 向下擴展溫和衰減 -8dB (0.4x)，徹底杜絕「嘶嘶沙沙」抽吸喘息聲
-          pipeline.noiseGateGain.gain.setTargetAtTime(0.4, audioCtx.currentTime, 0.08);
+        // 必須持續安靜超過 24 幀 (1.2 秒)，確認為長時間靜音/段落停頓，才溫和衰減
+        // 徹底根除先前 150ms 盲目觸發導致每句話與每個音符之間「忽大忽小」抽吸的嚴重問題
+        if (consecutiveQuietFrames >= 24) {
+          // 向下擴展溫和衰減至 0.70 (-3.1 dB)，兼顧消噪與平滑過渡，絕無斷崖落差
+          pipeline.noiseGateGain.gain.setTargetAtTime(0.70, audioCtx.currentTime, 0.4);
         }
       }
 
-      // 3. 廣播級連續動態 AGC (僅在有效訊號累積充足且非安靜段落時微調，凍結底噪追逐)
-      if (currentSettings.enabled && macroRmsHistory.length >= 8 && isSignalActive) {
+      // 3. 廣播級連續動態 AGC (需累積至少 25 幀有效訊號且非安靜段落時微調，凍結底噪追逐)
+      if (currentSettings.enabled && macroRmsHistory.length >= 25 && isSignalActive) {
         let histSum = 0;
         for (let i = 0; i < macroRmsHistory.length; i++) {
           histSum += macroRmsHistory[i] * macroRmsHistory[i];
@@ -714,21 +717,23 @@
 
         // 基準期望值設定為 -21.0 dBFS (進入 Leveler 最佳線性工作點)
         const diffDb = -21.0 - inputDb;
-        // 安全增益邊界：拉高上限嚴格限制在 +12.0dB (防底噪暴增)，壓低至 -18.0dB (防耳膜受損)
-        const clampedDiff = Math.min(12.0, Math.max(-18.0, diffDb));
+        // 安全增益邊界：拉高上限限制在 +10.0dB (防底噪暴增)，壓低至 -16.0dB (防耳膜受損)
+        const clampedDiff = Math.min(10.0, Math.max(-16.0, diffDb));
 
-        // 0.35dB 滯後死區 (Hysteresis Deadband)：微小音量波動不反覆觸發自動化，消除拉鍊噪音
-        if (Math.abs(clampedDiff - lastAppliedTargetDb) > 0.35) {
+        // 1.5dB 滯後死區 (Hysteresis Deadband)：
+        // 正常演講與音樂的微小動態起伏 (1~2dB) 絕不反覆觸發增益調整，徹底根除音量忽大忽小
+        if (Math.abs(clampedDiff - lastAppliedTargetDb) > 1.5) {
           lastAppliedTargetDb = clampedDiff;
 
-          let slewSpeed = 0.20;
-          let slewTime = 0.8;
+          // 採用極平滑之 2 秒慢速過渡 (Slew)，人耳完全無法察覺增益變動
+          let slewSpeed = 0.08;
+          let slewTime = 2.0;
           if (currentSettings.rangeTightness === 'strict') {
-            slewSpeed = 0.30;
-            slewTime = 0.5;
+            slewSpeed = 0.12;
+            slewTime = 1.4;
           } else if (currentSettings.rangeTightness === 'wide') {
-            slewSpeed = 0.10;
-            slewTime = 1.5;
+            slewSpeed = 0.05;
+            slewTime = 2.8;
           }
 
           currentAppliedOffsetDb = currentAppliedOffsetDb * (1.0 - slewSpeed) + clampedDiff * slewSpeed;
@@ -2290,6 +2295,25 @@
           }
         } catch {}
       });
+
+      // 支援滑鼠滾輪在倍速滑桿微調
+      slider.addEventListener('wheel', (e) => {
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+          const cur = parseFloat(slider.value) || 1.0;
+          const step = e.shiftKey ? 0.01 : 0.05;
+          const next = e.deltaY < 0 ? cur + step : cur - step;
+          const clamped = Math.min(3.0, Math.max(0.25, Math.round(next * 100) / 100));
+          slider.value = clamped.toFixed(2);
+          updateSliderProgress(slider, clamped);
+          manualSpeedOverriddenVideoId = getCurrentVideoIdFromUrl();
+          applyPlaybackSpeed(clamped);
+          if (chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({ playbackSpeed: clamped });
+          }
+        } catch {}
+      }, { passive: false });
     }
 
     // 步進器按鈕 [-]
@@ -2677,6 +2701,57 @@
   document.addEventListener('fullscreenchange', closeSpeedMenu);
   window.addEventListener('resize', closeSpeedMenu);
 
+  /**
+   * 處理 YouTube 原生播放器音量條滾輪調整
+   * 支援 .ytp-volume-area, .ytp-volume-panel, .ytp-volume-slider 以及 Shorts 聲音按鈕
+   */
+  function handlePlayerVolumeWheel(e) {
+    try {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const video = getActiveVideo();
+      let currentVol = 50;
+      if (video) {
+        currentVol = video.muted ? 0 : Math.round(video.volume * 100);
+      } else {
+        const slider = document.querySelector('.ytp-volume-slider');
+        if (slider && slider.getAttribute('aria-valuenow')) {
+          currentVol = parseInt(slider.getAttribute('aria-valuenow'), 10) || 50;
+        }
+      }
+
+      // 原生音量以 5% 為標準步長 (對齊 YouTube 原生上下方向鍵)，Shift 鍵 1% 微調
+      const step = e.shiftKey ? 1 : 5;
+      const delta = e.deltaY < 0 ? step : -step;
+      const targetVol = Math.min(100, Math.max(0, currentVol + delta));
+
+      if (video) {
+        if (video.muted && targetVol > 0) {
+          video.muted = false;
+        }
+        video.volume = targetVol / 100;
+      }
+
+      window.postMessage({
+        type: 'YT_NORMALIZER_SET_VOLUME',
+        volume: targetVol,
+      }, '*');
+    } catch {}
+  }
+
+  // 監聽 YouTube 播放器音量條滾輪事件 (防滾動並即時調整音量)
+  document.addEventListener('wheel', (e) => {
+    try {
+      const volumeTarget = e.target.closest(
+        '.ytp-volume-area, .ytp-volume-panel, .ytp-volume-slider, ytd-reel-player-overlay-renderer #sound-button'
+      );
+      if (volumeTarget) {
+        handlePlayerVolumeWheel(e);
+      }
+    } catch {}
+  }, { passive: false });
+
   // 多分頁切換時同步情境倍速 (Tab Context Re-synchronization)
   function onTabContextSynchronize() {
     try {
@@ -2766,7 +2841,7 @@
             if (menu && menu.style.display !== 'none') {
               updateSpeedPanelUi(menu, currentRate);
             }
-            if (chrome.storage && chrome.storage.local) {
+            if (document.visibilityState === 'visible' && chrome.storage && chrome.storage.local) {
               chrome.storage.local.set({ playbackSpeed: currentRate });
             }
             broadcastStatus(false);
@@ -2840,9 +2915,6 @@
       const video = getActiveVideo();
       if (video) {
         setupAudioPipeline(video);
-        if (currentSettings.playbackSpeed && currentSettings.playbackSpeed !== 1.0) {
-          video.playbackRate = currentSettings.playbackSpeed;
-        }
       }
       ensureMusicModeUi();
       if (isShortsUrl()) {
@@ -2903,11 +2975,20 @@
     });
   }
 
+  // 導航開始瞬間第 0 毫秒立即送出鎖定畫質訊息
+  window.addEventListener('yt-navigate-start', () => {
+    try {
+      applyLockedQuality(currentSettings.lockedQuality);
+    } catch {}
+  });
+
   window.addEventListener('yt-navigate-finish', () => {
     try {
       closeSpeedMenu();
       musicModeQualitySent = false;
       resetVideoLoudnessState();
+      // 0ms 立即執行畫質鎖定，杜絕低畫質預載延遲
+      applyLockedQuality(currentSettings.lockedQuality);
       setTimeout(() => {
         findAndHookVideo();
         updateMusicModeMetadata();
@@ -2925,6 +3006,8 @@
       closeSpeedMenu();
       musicModeQualitySent = false;
       resetVideoLoudnessState();
+      // 0ms 立即執行畫質鎖定
+      applyLockedQuality(currentSettings.lockedQuality);
       setTimeout(() => {
         findAndHookVideo();
         updateMusicModeMetadata();
@@ -2941,6 +3024,7 @@
     try {
       if (e.target && e.target.tagName === 'VIDEO') {
         setupAudioPipeline(e.target);
+        applyLockedQuality(currentSettings.lockedQuality);
         if (isShortsUrl()) {
           findAndHookVideo();
           evaluateAndApplySmartSpeed();

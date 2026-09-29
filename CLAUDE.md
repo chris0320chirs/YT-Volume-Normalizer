@@ -3,15 +3,32 @@
 ## 🎯 專案目標與簡介
 * 本專案為適用於 Google Chrome 與 Microsoft Edge 的 Manifest V3 擴充套件（**YouTube 音量範圍鎖定器與真隨機**）。
 * GitHub 儲存庫：[https://github.com/chris0320chirs/YT-Volume-Normalizer](https://github.com/chris0320chirs/YT-Volume-Normalizer) (Public)
-* 當前版本：**v1.9.0 (YouTube Shorts 直式短影音相容支援・動態 Reel 音訊管線熱拔插・Shorts 專屬倍速按鈕與智慧調速)**
+* 當前版本：**v1.9.3 (根治音量忽大忽小抽吸・向下擴展防抖・AGC動態平穩化 ＆ 多分頁背景速度隔離加固)**
 * 核心運作原則：
-  1. **YouTube Shorts 直式短影音全面支援 (v1.9.0 新增)**：
+  1. **根治音量忽大忽小抽吸與動態平穩化 (v1.9.3 新增)**：
+     - **向下擴展閘門防抖與持時延長 (Hold Time 1.2s)**：將抗底噪閘門觸發門限由 150ms 延長至 1.2 秒（24 幀），徹底消除說話句子間歇或音樂音符切換時每秒頻繁在 1.0 (0dB) 與 0.4 (-8dB) 間劇烈跳動引發的抽吸斷續感；長時靜音衰減由 -8dB 溫和化為 -3.1dB (0.70x)，搭配 400ms 慢速 ramp，過渡平滑無痕。
+     - **宏觀 AGC 滑動視窗擴增與 1.5dB 防抖死區**：滑動視窗擴展為 7.0 秒（140 幀），累積至少 25 幀有效訊號才調整；滯後死區拓寬為 1.5dB，過渡改採 2.0 秒極平滑 slew，自然動態起伏（主歌/副歌）不再誘發 AGC 盲目追逐。
+     - **廣播壓平機工作點對齊 (Leveler Compressor)**：門限由 -24dBFS 調整至 -18.0dBFS，比率調整為 3.5:1 平滑廣播級（音樂模式 2.5:1），徹底消滅壓縮器與 AGC 在 -21dBFS 處互搏形成的抽吸震盪。
+  2. **多分頁背景速度獨立隔離加固 (v1.9.3 加固)**：
+     - **杜絕 storage.onChanged 跨分頁記憶體污染**：當 `smartSpeedEnabled` 開啟時，背景分頁收到 storage 變更時嚴格跳過 `playbackSpeed` 同步，保護背景音樂分頁（1.0x）絕不被前景影片分頁（2.0x）覆寫。
+     - **拔除 findAndHookVideo 盲目覆寫**：移除 1.5 秒維護定時器內強制覆寫 `video.playbackRate = currentSettings.playbackSpeed` 之破壞性邏輯。
+     - **寫入權限嚴格綁定前景分頁**：`ratechange` 與同步邏輯僅在 `document.visibilityState === 'visible'` 時允許更新 storage。
+  3. **滑鼠滾輪即時調音 (v1.9.2 新增)**：
+     - **Popup 目標音量滑桿滾輪微調**：滑鼠懸停於擴充功能彈窗「目標聆聽音量」滑桿條（`#target-slider`）及卡片區域（`.slider-box` / `.volume-card`）時，支援滑鼠滾輪直接微調（向上 +2%、向下 -2%、按住 Shift 鍵 1% 極致微調、快速滾動 5%），自動在 0% ~ 100% 區間安全夾緊並同步即時更新數值與後台音訊增益。
+     - **YouTube 原生播放器音量條滾輪微調**：滑鼠懸停於 YouTube 原生底欄音量區域（`.ytp-volume-area`、`.ytp-volume-panel`、`.ytp-volume-slider` 及 Shorts 聲音按鈕）時，支援滑鼠滾輪直接調整音量（5% 標準步長，對齊原生方向鍵；Shift 鍵 1% 微調），徹底攔截並阻止網頁隨滾輪上下捲動，靜音狀態下調高音量自動解除靜音，並透過 `page_bridge.js` 呼叫 YouTube 官方 Player API `player.setVolume()` 與 `<video>.volume` 雙向同步。
+     - **倍速選單面板滑桿滾輪微調**：播放器懸浮倍速面板中的速度滑桿條（`#ytp-speed-slider-input`）同步支援滾輪微調（步長 0.05x，Shift 0.01x），操作體驗全域一致。
+  2. **固定畫質零延遲起播與杜絕低畫質預載 (v1.9.1 新增)**：
+     - **`localStorage['yt-player-quality']` 雙向同步持久化**：在 MAIN 世界第 0 毫秒同步讀寫 YouTube 原生本地儲存鍵，使 YouTube 播放器內部 ABR 引擎在初始載入 Manifest 前直接以鎖定畫質為首選，徹底消滅以 360p/480p 低解析度發起初始分段請求的根因。
+     - **拔除人工延遲與零延遲階梯鎖定 (Zero-Delay Quality Ladder)**：徹底移除 `page_bridge.js` 舊版 300ms/1000ms 與 `content.js` 150ms 人工延遲；改採 0ms 立即同步執行 `applyQuality`，並搭配 `[20, 60, 150, 300, 600, 1200]ms` 密集微間隔階梯重試，確保播放器與清晰度清單就緒瞬間 100% 命中鎖定。
+     - **全生命週期事件深層攔截**：監聽 `yt-navigate-start`（點擊新片 0ms）、`yt-navigate-finish`、`yt-page-data-updated`，以及 `<video>` 的 `loadstart`、`loadedmetadata`、`canplay`、`playing`，全鏈路不留死角。
+     - **播放器狀態機監聽 (`onStateChange` & `onPlaybackQualityChange`)**：當播放器進入 UNSTARTED (-1) 或 BUFFERING (3) 時立即套用；若 YouTube ABR 在串流中試圖偷偷降級，即刻主動矯正還原。
+  2. **YouTube Shorts 直式短影音全面支援 (v1.9.0 新增)**：
      - **多 Reel DOM 智慧動態追蹤**：Shorts 同時常駐多個 `<ytd-reel-video-renderer>`，透過 `getActiveVideo()` 與 `getActivePlayer()` 動態鎖定 `[is-active]` 作用中元素，杜絕鎖定預載影片或滑動後失效的問題。
      - **Web Audio 管線節點快取與熱拔插 (Hot-Swapping)**：每個 `<video>` 節點快取 `__ytNormalizerSource`，滑動換片時平穩斷開舊節點並連接新節點，徹底杜絕重複建立造成的 `InvalidStateError` 與記憶體洩漏。
      - **Shorts 專屬側邊操作列倍速按鈕**：在 Shorts `#actions` 側邊操作欄頂部注入現代半透明圓形玻璃徽章按鈕 (`#ytp-shorts-speed-btn`)，點擊向左滑順展開旗艦倍速面板，原生鍵盤快捷鍵（`<`、`>`、`Shift+S`、`Shift+3`）與中央 HUD Toast 100% 同步運作。
      - **Shorts 原聲與音樂智慧調速**：整合 Shorts 原生配樂標籤、音訊作者與標題音樂關鍵字分析，配樂短片自動降為 1.0x 原速，一般短影音自動以 2.0x 高速播放。
      - **速率變更精確過濾**：`ratechange` 監聽器精準過濾非 activeVideo 之事件干擾，防止預載背景影片觸發非預期覆蓋。
-  2. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4~v1.8.8 多層加固)**：
+  3. **零控制台拋錯與重載孤兒自我銷毀 (v1.8.4~v1.8.8 多層加固)**：
      - **版本化 LOADED 旗標 (v1.8.8)**：改用 `__YT_VOLUME_NORMALIZER_1_8_8__` 版本化旗標，確保舊版殭屍腳本不阻擋新版載入，主控台輸出版本確認標識。
      - **全域護盾 URL 匹配修正**：`event.filename` 匹配改為 `chrome-extension://`，確保所有來自擴充功能的錯誤都被正確攔截（防範 Chrome 實際 URL 格式不符）。
      - **MutationObserver Debounce 節流**：YouTube SPA 換頁時 DOM 劇烈變動，加入 300ms debounce，防止爆發大量競態 `insertBefore` 調用。
@@ -88,19 +105,27 @@
 * [x] 生成高質感等化器圖示 (16x16, 48x48, 128x128 PNG)
 * [x] 完成 Manifest V3 宣告檔 (`manifest.json` v1.6.0)
 * [x] 建立 Background Service Worker (`background/background.js`) 開放 session 權限
-* [x] 純淨抗噪零破音等化核心引擎 (`content/content.js`)
+* [x] 純淨抗噪零破音等化核心引擎 (`content/content.js`，v1.9.3 根治忽大忽小與抽吸)
   - [x] 杜絕乾音洩漏 (Zero Dry Leakage)
   - [x] 零溢出軟限制器 (WaveShaper Soft Clipper 4x Oversampling)
-  - [x] 智慧抗底噪門限 (-46dBFS) 與向下擴展 (-8dB)
-  - [x] 廣播級 10:1 平滑壓縮，380ms 自然釋放
+  - [x] 智慧抗底噪向下擴展 (Downward Expander)：Hold Time 延長至 1.2s，溫和衰減 -3.1dB，杜絕每句話語音抽吸
+  - [x] 廣播級 3.5:1 平滑工作點壓平機，450ms 溫和釋放，徹底消滅壓縮器與 AGC 互搏
   - [x] 官方 Content Loudness 0 秒快照跳起 (Jump-Start)
-  - [x] 連續性動態 AGC 滑動 Leq 微調 (帶 0.35dB 防抖死區)
+  - [x] 連續性動態 AGC 滑動 Leq 微調 (視窗 7.0s 帶 1.5dB 防抖死區與 2.0s 慢速過渡)
+  - [x] 多分頁背景速度獨立隔離加固：防範 `storage.onChanged` 記憶體污染與移除定時器盲目覆寫，背景音樂 1.0x 絕不變 2.0x
   - [x] 拔除冗餘延遲節點，解決藍牙時鐘抖動與 Seek 雜音
-  - [x] 單例管線複用，徹底消除 SPA 導航重複節點疊加問題
-* [x] 固定畫質引擎 (Lock Quality，參考 YouTube Tweak)
+* [x] 滑鼠滾輪即時調音與滑桿微調 (v1.9.2 新增)
+  - [x] Popup 目標音量滑桿滾輪：滑鼠滾輪直接增減音量（預設 2%、Shift 鍵 1%、快速滾動 5%），自動 [0%, 100%] 安全夾緊
+  - [x] YouTube 原生播放器音量條滾輪：滑鼠懸停於 `.ytp-volume-area` / `.ytp-volume-panel` / `.ytp-volume-slider` / Shorts 聲音按鈕時滾動滾輪，阻止頁面上下捲動，依 5% 原生步長（Shift 1%）即時調整音量，靜音時自動解除靜音
+  - [x] 倍速選單面板滑桿滾輪：懸浮倍速面板速度滑桿條 (`#ytp-speed-slider-input`) 支援滾輪微調（步長 0.05x，Shift 0.01x）
+* [x] 固定畫質引擎 (Lock Quality，參考 YouTube Tweak，v1.9.1 零延遲起播升級)
   - [x] 支援 Auto / 1080p / 1440p / 4K / 720p 偏好鎖定
   - [x] 換片智慧向下 Fallback 至最接近之最高可用解析度
   - [x] 與純音模式連動：解除純音時自動還原使用者鎖定畫質
+  - [x] YouTube 原生 `localStorage['yt-player-quality']` 雙向同步持久化（消滅 360p/480p 初始預載）
+  - [x] 零延遲階梯鎖定架構 (0ms 立即套用 ＋ 20ms/60ms/150ms/300ms 快速階梯重試)
+  - [x] 全生命週期深層攔截 (`yt-navigate-start`、`loadstart`、`loadedmetadata`、`canplay`)
+  - [x] 播放器狀態機即刻鎖定與自動防偷降級矯正 (`onStateChange` & `onPlaybackQualityChange`)
 * [x] 3倍速按鈕 ＆ 現代旗艦倍速面板 (Modern Flagship Speed Panel)
   - [x] YouTube 播放器控制列專屬 `⚡倍速按鈕` (`#ytp-speed-btn`)，點擊展開 32px 大字、[-] 滑桿 [+] 與常用膠囊面板
   - [x] 常用倍速膠囊列 (`1.0 正常` / `1.25` / `1.5` / `2.0` / `3.0`)
